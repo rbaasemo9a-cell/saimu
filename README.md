@@ -1,0 +1,315 @@
+# 返済ロードマップ
+
+借金返済の管理ツール。収入・支出・返済の記録から**完済予定日を逆算**し、返済戦略ごとの利息と期間を比較します。
+データはローカルの **SQLite ファイル**（`saimu.db`）に保存され、外部には一切送信されません。
+
+## 起動
+
+```
+cd C:\Users\user\saimu
+npm start
+```
+
+ブラウザが自動で開きます（開かない場合は http://127.0.0.1:5173/ ）。
+停止は `Ctrl+C`。**依存パッケージはありません** — `npm install` は不要です。
+
+| オプション | 用途 |
+|---|---|
+| `npm start -- --port 5174` | ポートを変える |
+| `npm start -- --no-open` | ブラウザを自動で開かない |
+| `npm start -- --host tailscale` | Tailscale 経由で開く。外出先からも見られる（→ [スマホから見る](#スマホから見る)） |
+| `npm start -- --host 0.0.0.0` | 同じ Wi-Fi の端末からも開く（→ [スマホから見る](#スマホから見る)） |
+| `set SAIMU_DB=D:\家計\saimu.db` | DB ファイルの置き場所を変える |
+| `set SAIMU_KEY=...` | アクセスキーを自分で決める（既定は `saimu.key` に自動生成） |
+
+## スマホから見る
+
+既定では `127.0.0.1` だけで待ち受けるので、同じ Wi-Fi のスマホからも開けません。
+外に出す方法は2つあり、**どちらもアクセスキーが必須**になります。
+
+| | Tailscale 経由 | LAN 直結 |
+|---|---|---|
+| コマンド | `npm start -- --host tailscale` | `npm start -- --host 0.0.0.0` |
+| 外出先から | **見られる** | 見られない |
+| 通信の暗号化 | **あり**（WireGuard） | なし（平文の HTTP） |
+| 同じ Wi-Fi の他人から | **届かない** | 届く（鍵で弾く） |
+| ファイアウォール | 基本は不要 | 手動で開ける必要あり |
+| 必要なもの | PC とスマホに Tailscale | なし |
+
+**外出先でも使うなら Tailscale をおすすめします。** LAN 直結は自宅 Wi-Fi 限定で。
+
+### Tailscale 経由（おすすめ）
+
+```
+# 1. PC とスマホの両方に Tailscale を入れて、同じアカウントでログインする
+#    https://tailscale.com/download
+
+# 2. Tailscale のアドレスだけで待ち受ける（LAN には出ない）
+npm start -- --host tailscale
+```
+
+`--host tailscale` は起動時に `100.64.0.0/10`（Tailscale が使う CGNAT 範囲）のアドレスを探して、
+**そこだけ**で待ち受けます。`0.0.0.0` と違って同じ Wi-Fi の他人からは届きません。
+Tailscale が動いていなければ、その場で理由を出して止まります。
+
+表示された URL をスマホで一度開けば完了です。MagicDNS を有効にしていれば
+`http://<PCのホスト名>:5173/` でも開けます。
+
+### LAN 直結
+
+```
+# 1. ファイアウォールを開ける（管理者の PowerShell で一度だけ。LAN 内からのみ許可）
+New-NetFirewallRule -DisplayName "saimu 5173 (LAN only)" -Direction Inbound -Action Allow `
+  -Protocol TCP -LocalPort 5173 -RemoteAddress 192.168.2.0/24 -Profile Any
+
+# 2. LAN に出して起動する
+npm start -- --host 0.0.0.0
+```
+
+```
+# 1. ファイアウォールを開ける（管理者の PowerShell で一度だけ。LAN 内からのみ許可）
+New-NetFirewallRule -DisplayName "saimu 5173 (LAN only)" -Direction Inbound -Action Allow `
+  -Protocol TCP -LocalPort 5173 -RemoteAddress 192.168.2.0/24 -Profile Any
+
+# 2. LAN に出して起動する
+npm start -- --host 0.0.0.0
+```
+
+### GitHub Pages 版（Google スプレッドシート）
+
+PC を起動しておかなくても、スマホから閲覧も記録もできる版です。
+画面のコードは `public/index.html` ただ1つで、`npm run build:web` がデータ層だけを
+Google スプレッドシート版に差し替えて `docs/index.html` を作ります。UI は二重管理しません。
+
+```
+npm run build:web     → docs/index.html
+```
+
+**ログインした人が、その人自身のデータだけを見ます。** スコープは `drive.file` だけなので、
+このアプリが触れるのは「このアプリが作ったファイル」に限られます。他人のドライブは見えませんし、
+あなたのシートも他人には見えません。役割分担の設定は要りません。
+
+#### 1. Google Cloud の設定（一度だけ）
+
+1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作る
+2. **API とサービス → ライブラリ** で次の2つを有効にする
+   - Google Sheets API
+   - Google Drive API
+3. **OAuth 同意画面** → 外部 → アプリ名とメールを入れる
+   - スコープに `.../auth/drive.file` を追加する
+   - **テストユーザー**に自分のメールアドレスを追加する
+4. **認証情報 → 認証情報を作成 → OAuth クライアント ID**
+   - 種類：**ウェブ アプリケーション**
+   - **承認済みの JavaScript 生成元** に `https://<あなた>.github.io` を追加
+   - リダイレクト URI は不要です（トークン方式のため）
+5. 表示された**クライアント ID** を控える
+
+| 同意画面の設定 | ログインできる人 | 各自が見るもの | Google の審査 |
+|---|---|---|---|
+| テスト（既定） | 登録した人だけ（最大100） | 各自のシートだけ | 不要 |
+| 本番公開 | 誰でも | 各自のシートだけ | **不要**（`drive.file` は非機密スコープのため） |
+
+自分だけで使うならテストのままで十分です。テストモードでは定期的な再ログインが要る場合があります。
+
+#### 2. GitHub Pages に置く
+
+```
+git init && git add -A && git commit -m "初回"
+git remote add origin https://github.com/<あなた>/saimu.git
+git push -u origin main
+```
+
+リポジトリの **Settings → Pages** で、ソースを `main` ブランチの **`/docs`** フォルダにします。
+数分後に `https://<あなた>.github.io/saimu/` が開きます。
+
+初回だけクライアント ID の入力を求められます。貼り付けると**この端末の localStorage にだけ**保存され、
+どこにも送信されません。次に「Google でログイン」を押すと、あなたのドライブに
+`返済ロードマップ` というスプレッドシートが作られます。
+
+> **GitHub Pages は必ず公開されます。** private リポジトリでもサイト自体は誰でも開けます。
+> ただし開いても見えるのは**ログイン画面だけ**で、データはあなたの Google アカウントの中にあります。
+
+#### 3. 今のデータを移す
+
+ローカル版の「データ」画面で **JSON に書き出す** → Pages 版の「データ」画面で
+**JSON バックアップを読み込む**。日割り計算の規則は両方とも同じなので、数字は変わりません。
+
+#### ローカル版との違い
+
+| | ローカル版（`npm start`） | GitHub Pages 版 |
+|---|---|---|
+| 保存先 | 手元の `saimu.db` | あなたのドライブのスプレッドシート |
+| PC の起動 | 必要 | **不要** |
+| 書き込みの安全性 | SQLite のトランザクション | 全シートを1回の `batchUpdate` で置換 |
+| 同時編集 | — | 別端末が先に書いていれば弾く（`meta` の版番号で検出） |
+| 外部への送信 | なし | Google のみ |
+
+**2つは別々の保存先です。** 併用すると内容がずれるので、どちらかに寄せてください。
+
+### アクセスキー
+
+どちらの方法でも、起動するとスマホ用の URL が表示されます。
+**一度だけ**これを開けば、以後は鍵なしの URL で開けます。
+
+```
+  [Tailscale] 外出先からも開けます。通信は暗号化されています。
+    http://100.101.102.103:5173/?k=k7m4p2xq9a
+    MagicDNS を使っているなら  http://desktop-jort9h7:5173/?k=k7m4p2xq9a
+```
+
+| 仕組み | 中身 |
+|---|---|
+| 鍵の保存先 | `saimu.key`（git 管理外。消すと次回に作り直します） |
+| 鍵の受け渡し | `?k=` で一度渡すと Cookie（1年・HttpOnly・SameSite=Lax）に移り、URL からは消えます |
+| 同じ PC から | `127.0.0.1` からの接続は鍵なしで通ります。PC での使い勝手は変わりません |
+| 鍵が違うとき | 画面もAPIも 401。失敗が10回続いた IP は10分間 429 で締め出します |
+| API から使う | `X-Saimu-Key: <鍵>` ヘッダでも通ります |
+| 鍵を変える | `saimu.key` を消して再起動、または `SAIMU_KEY` を指定 |
+
+Tailscale の場合、鍵は**二重の守り**です（Tailscale 自体が端末を認証し通信を暗号化しているため）。
+LAN 直結の場合は、鍵が唯一の守りになります。
+
+`--host` を付けなければ従来どおり `127.0.0.1` のみで、鍵の仕組みは一切動きません。
+
+## コマンド
+
+| コマンド | 内容 |
+|---|---|
+| `npm start` | サーバーを起動する |
+| `npm test` | 下の全部（合計132件） |
+| `npm run build:web` | GitHub Pages 版 `docs/index.html` を組み立てる |
+| `npm run test:ui` | 画面操作をヘッドレス Edge で確認する（15件） |
+| `npm run test:auth` | アドレス判定と、外部公開時のアクセスキー（30件） |
+| `npm run test:web` | GitHub Pages 版の組み立てとデータ層（32件） |
+| `npm run lint` | JS 構文・HTML 構造・テーマトークンの静的チェック |
+| `npm run backup` | DB ファイルの複製を `backups/` に作る |
+| `npm run schema` | 現在のスキーマと件数を表示する |
+
+## 画面
+
+| 画面 | できること |
+|---|---|
+| ダッシュボード | 完済予定日、残高の推移、進捗率、今月の収支と発生利息 |
+| 借入・返済 | 借入先ごとの元金／未払利息／年利／最低返済額の管理、返済の記録 |
+| 収入・支出 | 手取り収入と生活支出をカテゴリ別に記録、月次集計 |
+| 目標 | 完済目標日から必要な月額を逆算し、家計の余力と突き合わせる |
+| シミュレーション | 雪崩式／雪だるま式／最低返済のみ を同じ返済額で比較 |
+| データ | DB の状態、バックアップ、JSON の書き出し・取り込み |
+
+## 構成
+
+```
+saimu/
+├─ package.json        依存なし。Node 22.5+ 同梱の node:sqlite を使う
+├─ server.js           HTTP サーバー・アクセスキー・JSON API
+├─ netinfo.js          LAN と Tailscale のアドレス判定（副作用なし）
+├─ db.js               スキーマ・問い合わせ・トランザクション
+├─ public/
+│  └─ index.html       UI 一式（CSS と JS を含む単一ファイル）＝画面の唯一の出どころ
+├─ web/                GitHub Pages 版のデータ層（Google スプレッドシート）
+│  ├─ store.js         ログイン・シートの読み書き
+│  ├─ api.js           server.js と同じ形の API をブラウザで再現
+│  ├─ boot.js          ログイン画面と起動手順
+│  └─ gate.css         ログイン画面の見た目
+├─ docs/               ← npm run build:web が生成（GitHub Pages の公開元）
+├─ tools/
+│  ├─ test.js          データ層とシミュレーションの検証
+│  ├─ uitest.js        ヘッドレス Edge で画面操作を検証
+│  ├─ authtest.js      LAN 公開時のアクセスキーを検証
+│  ├─ build-web.js     docs/index.html を組み立てる
+│  ├─ webtest.js       組み立て結果とデータ層を検証
+│  ├─ lint.js          静的チェック
+│  ├─ backup.js        npm run backup
+│  ├─ schema.js        npm run schema
+│  └─ clear-txns.js    収入・支出だけを空にする
+├─ saimu.db            ← 起動時に自動生成（git 管理外）
+├─ saimu.key           ← LAN 公開時に自動生成（git 管理外）
+└─ backups/            ← バックアップ先（git 管理外）
+```
+
+### データ設計
+
+```
+debts       借入先・元金・未払利息・利息計算の起算日・当初借入額・年利・最低返済額
+txns        収入と支出（type で区別）
+repayments  返済の記録。debt_id は debts を参照し ON DELETE CASCADE
+goals       完済目標日・月々の返済目標・生活防衛資金（1行のみ）
+```
+
+借入の残高は **元金 (`principal`) と未払利息 (`interest_accrued`) に分けて** 持ちます。
+最初に登録するのはこの2つと**起算日 (`accrued_at`)** で、以降の利息は起算日からの経過日数で自動計算されます。
+
+DB に入っているのは「起算日時点」の値です。`GET /api/state` は起算日から今日までの分を足した
+`interestToday`（今日時点の未払利息）と `balance`（元金＋未払利息）も一緒に返します。
+足した結果を書き戻すのは**返済を記録したときだけ**なので、画面を開いただけで DB が書き変わることはありません。
+
+**返済の記録と残高の更新は一つのトランザクションにまとめています。**
+「記録は残っているのに残高が減っていない」という中途半端な状態にはなりません。取り消しも同様です。
+
+旧バージョン（`balance` 一本）の DB は、起動時に自動で移行します。残高はすべて元金として引き継ぎ、
+未払利息は 0、起算日は移行した日になります。過去に遡って利息を作り出すことはしません。
+`balance` しか入っていない古い JSON バックアップもそのまま読み込めます。
+
+`PRAGMA journal_mode = WAL` を有効にしているため、`saimu.db-wal` と `saimu.db-shm` が並んでできます。これらも DB の一部です。手でコピーしてバックアップを取る場合は3つまとめて扱ってください。`npm run backup`（`VACUUM INTO`）なら1ファイルに畳まれるので、そちらが確実です。
+
+### API
+
+既定では `127.0.0.1` のみ。`--host` で外に出したときは、ループバック以外からの接続に
+アクセスキー（Cookie か `X-Saimu-Key` ヘッダ）が要ります。
+書き込み系は**更新後の全状態を返す**ので、画面と DB がずれません。
+
+```
+GET    /api/state          全データ
+GET    /api/stats          DB のパス・容量・件数
+POST   /api/debts          借入を追加        PUT/DELETE /api/debts/:id
+POST   /api/repayments     返済を記録        DELETE /api/repayments/:id
+POST   /api/txns           収支を追加        DELETE /api/txns/:id
+PUT    /api/goals          目標を保存
+POST   /api/backup         VACUUM INTO でDB複製
+GET    /api/export         JSON書き出し      POST /api/import で取り込み
+POST   /api/sample         サンプルデータ    POST /api/wipe で全消去
+```
+
+## SQL で直接見る
+
+DB は普通の SQLite ファイルなので、任意のツールで開けます。
+
+```sh
+# 借入先ごとの返済総額と利息総額
+SELECT d.name,
+       SUM(r.amount)    AS 返済総額,
+       SUM(r.interest)  AS うち利息
+FROM repayments r JOIN debts d ON d.id = r.debt_id
+GROUP BY d.id ORDER BY 2 DESC;
+
+# 現在の残高の内訳と、これから1日あたりに付く利息
+SELECT name,
+       principal                        AS 元金,
+       interest_accrued                 AS 未払利息,
+       accrued_at                       AS 起算日,
+       ROUND(principal * rate / 100 / 365, 2) AS 日あたり利息
+FROM debts ORDER BY 元金 DESC;
+
+# 月ごとの収支
+SELECT substr(date,1,7) AS 月,
+       SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS 収入,
+       SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS 支出
+FROM txns GROUP BY 1 ORDER BY 1 DESC;
+```
+
+## 計算の前提
+
+- 利息は**日割り**で計算します。**元金 × 年利 ÷ 365日 × 経過日数**。うるう年も 365 日として扱います。
+- 利息が付くのは**元金だけ**です。払いきれずに残った未払利息が、それ自身でさらに利息を生むことはありません。
+- 返済を記録すると、起算日から返済日までの利息を積んだうえで、返済額を**まず利息に、残りを元金に**充当します。
+  返済額が利息に満たなければ元金は1円も減らず、差額が未払利息として積み上がります。
+- 過去の日付で返済を記録しても起算日は巻き戻しません（同じ期間の利息を二度積まないため）。
+- シミュレーションは、返済日を今日から1ヶ月刻みに置いて日割りで利息を積みます。
+  毎月の返済額が一定で、新たな借入がないことを前提としています。
+- 50年（600ヶ月）以内に完済しない場合、または残高が減らない場合は「完済しません」と表示します。
+- 実際の約定日・遅延損害金・借入先ごとの端数処理は考慮していません。
+  **ここでの数字は計画を立てるための目安**として使ってください。
+
+検証は `npm test`（55件）で、日割り計算そのもの・返済の充当順序・取り消しの復元に加えて、
+単一ローンの完済月数を元利均等返済の理論式 `n = -ln(1 - rP/A) / ln(1+r)` と突き合わせています
+（日割りでも1年を通せば月複利の理論値と一致します）。

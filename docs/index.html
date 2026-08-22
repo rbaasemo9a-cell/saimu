@@ -1,0 +1,3019 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>返済ロードマップ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@500;700;900&family=IBM+Plex+Sans+JP:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+
+<style>
+/* ============================================================
+   TOKENS — light is the bare :root; dark redefined in both scopes
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --bg:          #eef0f4;
+  --surface:     #fafbfc;
+  --surface-2:   #f2f4f7;
+  --surface-3:   #e8ebf1;
+  --border:      #dde1e8;
+  --border-2:    #c6cdda;
+  --ink:         #131720;
+  --ink-2:       #545d6b;
+  --ink-3:       #838d9c;
+  --accent:      #2b4a8f;
+  --accent-2:    #3f63b4;
+  --accent-ink:  #ffffff;
+  --accent-soft: #e3e9f6;
+  --good:        #0ca30c;
+  --good-text:   #006300;
+  --good-soft:   #e2f3e2;
+  --warn:        #fab219;
+  --warn-text:   #855400;
+  --warn-soft:   #fdf1d9;
+  --crit:        #d03b3b;
+  --crit-text:   #a72a2a;
+  --crit-soft:   #fae5e5;
+  --grid:        #e3e6ec;
+  --axis:        #c6cdda;
+  --shadow:      0 1px 2px rgba(19,23,32,.05), 0 8px 24px -14px rgba(19,23,32,.22);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100;
+  --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", system-ui, sans-serif;
+  --disp: "Zen Kaku Gothic New", "IBM Plex Sans JP", "Hiragino Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:          #0d1016;
+    --surface:     #171b23;
+    --surface-2:   #1e232d;
+    --surface-3:   #262c38;
+    --border:      #2a3140;
+    --border-2:    #3a4354;
+    --ink:         #eef1f6;
+    --ink-2:       #a4aebd;
+    --ink-3:       #7b8696;
+    --accent:      #7b9bea;
+    --accent-2:    #99b4f4;
+    --accent-ink:  #0d1016;
+    --accent-soft: #1d2740;
+    --good:        #0ca30c;
+    --good-text:   #3fc93f;
+    --good-soft:   #143014;
+    --warn:        #fab219;
+    --warn-text:   #f5bb44;
+    --warn-soft:   #33280d;
+    --crit:        #d03b3b;
+    --crit-text:   #ef7c7c;
+    --crit-soft:   #331717;
+    --grid:        #242a35;
+    --axis:        #333c4b;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.8);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+    --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg:          #0d1016;
+  --surface:     #171b23;
+  --surface-2:   #1e232d;
+  --surface-3:   #262c38;
+  --border:      #2a3140;
+  --border-2:    #3a4354;
+  --ink:         #eef1f6;
+  --ink-2:       #a4aebd;
+  --ink-3:       #7b8696;
+  --accent:      #7b9bea;
+  --accent-2:    #99b4f4;
+  --accent-ink:  #0d1016;
+  --accent-soft: #1d2740;
+  --good:        #0ca30c;
+  --good-text:   #3fc93f;
+  --good-soft:   #143014;
+  --warn:        #fab219;
+  --warn-text:   #f5bb44;
+  --warn-soft:   #33280d;
+  --crit:        #d03b3b;
+  --crit-text:   #ef7c7c;
+  --crit-soft:   #331717;
+  --grid:        #242a35;
+  --axis:        #333c4b;
+  --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 28px -16px rgba(0,0,0,.8);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500;
+  --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+h1,h2,h3,h4 { font-family: var(--disp); font-weight: 700; margin: 0; text-wrap: balance; line-height: 1.3; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   SHELL
+   ============================================================ */
+.app { display: grid; grid-template-columns: 232px minmax(0,1fr); min-height: 100vh; }
+
+.rail {
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  padding: 22px 14px;
+  display: flex; flex-direction: column; gap: 26px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.brand { display: flex; flex-direction: column; gap: 2px; padding: 0 8px; }
+.brand-mark {
+  font-family: var(--disp); font-weight: 900; font-size: 17px;
+  letter-spacing: .01em; color: var(--ink);
+}
+.brand-sub { font-size: 11px; color: var(--ink-3); letter-spacing: .09em; text-transform: uppercase; }
+
+.rail-nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px;
+  padding: 9px 10px; border-radius: var(--r);
+  background: none; border: 0; cursor: pointer;
+  color: var(--ink-2); font-size: 13.5px; font-weight: 500;
+  text-align: left; width: 100%; transition: background .13s, color .13s;
+}
+.nav-item svg { width: 17px; height: 17px; flex: none; stroke-width: 1.7; }
+.nav-item:hover { background: var(--surface-2); color: var(--ink); }
+.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+.rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 0 8px; }
+.saved-note { font-size: 11px; color: var(--ink-3); line-height: 1.5; }
+
+.main { padding: 34px 40px 72px; max-width: 1240px; }
+.view { display: none; }
+.view.is-active { display: block; }
+
+.view-head { margin-bottom: 24px; }
+.view-head h1 { font-size: 25px; font-weight: 900; letter-spacing: -.01em; }
+.view-head .lede { color: var(--ink-2); font-size: 13.5px; margin-top: 4px; max-width: 62ch; }
+
+@media (max-width: 900px) {
+  .app { grid-template-columns: 1fr; }
+  .rail {
+    position: static; height: auto; flex-direction: row; align-items: center;
+    border-right: 0; border-bottom: 1px solid var(--border);
+    padding: 12px 16px; gap: 16px; overflow-x: auto;
+  }
+  .brand { flex: none; }
+  .brand-sub { display: none; }
+  .rail-nav { flex-direction: row; gap: 4px; }
+  .nav-item { padding: 7px 11px; white-space: nowrap; }
+  .nav-item span { display: none; }
+  .nav-item[aria-current="page"] span { display: inline; }
+  .rail-foot { display: none; }
+  .main { padding: 22px 18px 64px; }
+}
+
+/* ============================================================
+   PANELS / CARDS
+   ============================================================ */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+.panel-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 14px; padding: 16px 18px 0;
+}
+.panel-head h2 { font-size: 14.5px; font-weight: 700; }
+.panel-head .hint { font-size: 12px; color: var(--ink-3); }
+.panel-body { padding: 14px 18px 18px; }
+
+.grid { display: grid; gap: 16px; }
+.g-2 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.g-3 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+.g-4 { grid-template-columns: repeat(4, minmax(0,1fr)); }
+@media (max-width: 1080px) { .g-4 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+@media (max-width: 820px)  { .g-2, .g-3 { grid-template-columns: 1fr; } .g-4 { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+/* ---- roadmap band (the dashboard hero) ---- */
+.roadmap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  display: grid; grid-template-columns: 320px minmax(0,1fr);
+  overflow: hidden; box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+.roadmap-figure {
+  padding: 22px 24px; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+}
+.roadmap-label {
+  font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--ink-3); font-weight: 600;
+}
+.hero-figure {
+  font-family: var(--sans); font-weight: 600; font-size: 40px;
+  line-height: 1.12; letter-spacing: -.02em; color: var(--ink);
+}
+.hero-figure.is-muted { font-size: 27px; color: var(--ink-2); }
+.roadmap-sub { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.roadmap-chart { position: relative; min-height: 190px; display: flex; align-items: flex-end; }
+.roadmap-chart > svg { width: 100%; }
+@media (max-width: 820px) {
+  .roadmap { grid-template-columns: 1fr; }
+  .roadmap-figure { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+
+/* ---- stat tiles ---- */
+.tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.tile-label { font-size: 11.5px; color: var(--ink-3); font-weight: 500; }
+.tile-value { font-family: var(--sans); font-weight: 600; font-size: 22px; letter-spacing: -.01em; line-height: 1.25; }
+.tile-value.neg { color: var(--crit-text); }
+.tile-value.pos { color: var(--good-text); }
+.tile-delta { font-size: 11.5px; color: var(--ink-2); }
+
+/* ---- meter ---- */
+.meter { height: 7px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+.meter > i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.meter.is-good > i { background: var(--good); }
+.meter.is-warn > i { background: var(--warn); }
+.meter.is-crit > i { background: var(--crit); }
+
+/* ---- pills ---- */
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11.5px; font-weight: 600; padding: 2px 8px;
+  border-radius: 20px; border: 1px solid transparent; white-space: nowrap;
+}
+.pill svg { width: 12px; height: 12px; flex: none; }
+.pill.ok   { background: var(--good-soft); color: var(--good-text); border-color: color-mix(in srgb, var(--good) 30%, transparent); }
+.pill.warn { background: var(--warn-soft); color: var(--warn-text); border-color: color-mix(in srgb, var(--warn) 34%, transparent); }
+.pill.crit { background: var(--crit-soft); color: var(--crit-text); border-color: color-mix(in srgb, var(--crit) 34%, transparent); }
+.pill.flat { background: var(--surface-2); color: var(--ink-2); border-color: var(--border); }
+
+/* ============================================================
+   CONTROLS
+   ============================================================ */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px; justify-content: center;
+  padding: 8px 14px; border-radius: var(--r);
+  border: 1px solid var(--border-2); background: var(--surface);
+  color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: background .13s, border-color .13s;
+}
+.btn svg { width: 15px; height: 15px; flex: none; stroke-width: 1.8; }
+.btn:hover { background: var(--surface-2); border-color: var(--ink-3); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+.btn.danger { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit) 40%, transparent); }
+.btn.danger:hover { background: var(--crit-soft); }
+.btn.sm { padding: 4px 9px; font-size: 12px; border-radius: 5px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field > label { font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.field .note { font-size: 11.5px; color: var(--ink-3); }
+input[type="text"], input[type="number"], input[type="date"], input[type="month"], select, textarea {
+  font: inherit; width: 100%;
+  padding: 8px 10px; border-radius: 5px;
+  border: 1px solid var(--border-2); background: var(--surface);
+  color: var(--ink);
+}
+input[type="number"] { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+textarea { resize: vertical; min-height: 62px; font-family: var(--mono); font-size: 12px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 13px; }
+.form-grid .full { grid-column: 1 / -1; }
+@media (max-width: 620px) { .form-grid { grid-template-columns: 1fr; } }
+
+.seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: var(--r); overflow: hidden; }
+.seg button {
+  padding: 7px 14px; border: 0; background: var(--surface);
+  cursor: pointer; font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+  border-right: 1px solid var(--border-2);
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; }
+.toolbar .spacer { flex: 1 1 auto; }
+
+/* ============================================================
+   TABLES — ruled like a household ledger
+   ============================================================ */
+.table-wrap { overflow-x: auto; }
+table.ledger { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.ledger th {
+  text-align: left; font-weight: 600; font-size: 11.5px; color: var(--ink-3);
+  padding: 7px 12px; border-bottom: 1px solid var(--border-2);
+  border-right: 1px solid var(--border); white-space: nowrap;
+  letter-spacing: .03em;
+}
+table.ledger td {
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border); vertical-align: middle;
+}
+table.ledger th:last-child, table.ledger td:last-child { border-right: 0; }
+table.ledger tbody tr:hover { background: var(--surface-2); }
+table.ledger .r { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.ledger tfoot td {
+  font-weight: 600; border-top: 2px solid var(--border-2);
+  border-bottom: 0; background: var(--surface-2);
+}
+.amt-neg { color: var(--crit-text); }
+.amt-pos { color: var(--good-text); }
+
+.swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+/* ---- empty states ---- */
+.empty {
+  border: 1px dashed var(--border-2); border-radius: var(--r);
+  padding: 34px 26px; text-align: center; color: var(--ink-2);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.empty h3 { font-size: 15px; color: var(--ink); }
+.empty p { font-size: 13px; max-width: 46ch; }
+
+/* ============================================================
+   CHARTS
+   ============================================================ */
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.tick { font-family: var(--mono); font-size: 10px; font-variant-numeric: tabular-nums; }
+.dlabel { font-family: var(--mono); font-size: 10.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.clabel { font-family: var(--sans); font-size: 11px; }
+
+.tip {
+  position: absolute; pointer-events: none; opacity: 0;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: 5px; padding: 8px 10px; font-size: 12px;
+  box-shadow: var(--shadow); min-width: 128px; z-index: 5;
+  transition: opacity .1s;
+}
+.tip.show { opacity: 1; }
+.tip .tip-t { font-weight: 600; margin-bottom: 4px; font-size: 11.5px; color: var(--ink-2); }
+.tip .tip-r { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+.tip .tip-r b { font-family: var(--mono); font-weight: 500; font-variant-numeric: tabular-nums; }
+.tip .tip-k { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+
+/* ---- debt card ---- */
+.debt-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 11px;
+}
+.debt-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.debt-name { font-family: var(--disp); font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.debt-bal { font-family: var(--sans); font-weight: 600; font-size: 24px; letter-spacing: -.01em; }
+.debt-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 12px; color: var(--ink-2); }
+.debt-meta b { font-family: var(--mono); font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.debt-actions { display: flex; gap: 7px; flex-wrap: wrap; }
+
+/* ---- dialog ---- */
+dialog {
+  border: 1px solid var(--border-2); border-radius: 8px; padding: 0;
+  background: var(--surface); color: var(--ink);
+  max-width: 540px; width: calc(100% - 32px); box-shadow: var(--shadow);
+}
+dialog::backdrop { background: rgba(8,10,15,.5); }
+.dlg-head { padding: 18px 20px 0; }
+.dlg-head h3 { font-size: 16px; }
+.dlg-head p { font-size: 12.5px; color: var(--ink-3); margin-top: 3px; }
+.dlg-body { padding: 16px 20px; }
+.dlg-foot {
+  display: flex; justify-content: flex-end; gap: 9px;
+  padding: 13px 20px; border-top: 1px solid var(--border); background: var(--surface-2);
+}
+.calc-note {
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 10px 12px; font-size: 12.5px; color: var(--ink-2);
+  display: flex; flex-direction: column; gap: 3px;
+}
+.calc-note b { font-family: var(--mono); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+.callout {
+  border-radius: var(--r); padding: 12px 14px; font-size: 12.5px;
+  display: flex; gap: 10px; align-items: flex-start; line-height: 1.6;
+}
+.callout svg { width: 16px; height: 16px; flex: none; margin-top: 2px; }
+.callout.warn { background: var(--warn-soft); color: var(--warn-text); }
+.callout.crit { background: var(--crit-soft); color: var(--crit-text); }
+.callout.info { background: var(--accent-soft); color: var(--accent); }
+.callout b { font-weight: 700; }
+
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg);
+  padding: 9px 18px; border-radius: 20px; font-size: 13px; font-weight: 500;
+  opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+details.tableview { margin-top: 12px; }
+details.tableview > summary {
+  cursor: pointer; font-size: 12px; color: var(--ink-2);
+  padding: 4px 0; list-style: none; display: flex; align-items: center; gap: 6px;
+}
+details.tableview > summary::-webkit-details-marker { display: none; }
+details.tableview > summary::before { content: "▸"; font-size: 10px; }
+details.tableview[open] > summary::before { content: "▾"; }
+details.tableview > div { margin-top: 8px; }
+
+/* ---------- ログイン画面 ---------- */
+#gate {
+  position: fixed; inset: 0; z-index: 50;
+  display: grid; place-items: center;
+  background: var(--bg); padding: 24px;
+}
+#gate[hidden] { display: none; }
+.gate-card {
+  width: min(420px, 100%);
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 30px 28px;
+  box-shadow: var(--shadow); text-align: center;
+}
+.gate-mark {
+  font-size: 12px; letter-spacing: .08em; text-transform: none;
+  color: var(--ink-3); margin-bottom: 18px;
+}
+.gate-card h1 { font-size: 19px; margin: 0 0 10px; }
+.gate-card p {
+  font-size: 13px; color: var(--ink-2); line-height: 1.8; margin: 0 0 18px;
+}
+.gate-card input[type="text"] {
+  width: 100%; margin-bottom: 14px;
+  font-family: var(--mono); font-size: 12px;
+}
+.gate-card .btn { width: 100%; justify-content: center; }
+.gate-note {
+  font-size: 11.5px; color: var(--ink-3); margin: 16px 0 0 !important; line-height: 1.75;
+}
+.gate-err {
+  font-size: 12.5px; color: var(--crit-text); margin: 14px 0 0 !important;
+}
+.linklike {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; text-decoration: underline;
+}
+</style>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<div id="gate" hidden></div>
+
+<div class="app">
+  <nav class="rail">
+    <div class="brand">
+      <div class="brand-mark">返済ロードマップ</div>
+      <div class="brand-sub">Debt payoff planner</div>
+    </div>
+
+    <div class="rail-nav" role="tablist" aria-label="セクション">
+      <button class="nav-item" data-view="dash" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <span>ダッシュボード</span>
+      </button>
+      <button class="nav-item" data-view="debts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>
+        <span>借入・返済</span>
+      </button>
+      <button class="nav-item" data-view="cash">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17V7m0 0L4 10m3-3 3 3"/><path d="M17 7v10m0 0 3-3m-3 3-3-3"/></svg>
+        <span>収入・支出</span>
+      </button>
+      <button class="nav-item" data-view="goals">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/></svg>
+        <span>目標</span>
+      </button>
+      <button class="nav-item" data-view="sim">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
+        <span>シミュレーション</span>
+      </button>
+      <button class="nav-item" data-view="data">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M4 12v6c0 1.66 3.58 3 8 3s8-1.34 8-3v-6"/></svg>
+        <span>データ</span>
+      </button>
+    </div>
+
+    <div class="rail-foot">
+      <p class="saved-note" id="saveNote">データはこのブラウザ内にのみ保存されます。</p>
+    </div>
+  </nav>
+
+  <main class="main">
+    <section class="view is-active" id="view-dash" data-view="dash"></section>
+    <section class="view" id="view-debts" data-view="debts"></section>
+    <section class="view" id="view-cash" data-view="cash"></section>
+    <section class="view" id="view-goals" data-view="goals"></section>
+    <section class="view" id="view-sim" data-view="sim"></section>
+    <section class="view" id="view-data" data-view="data"></section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div class="dlg-head"><h3 id="dlgTitle"></h3><p id="dlgLede"></p></div>
+    <div class="dlg-body" id="dlgBody"></div>
+    <div class="dlg-foot">
+      <!-- キャンセルは type="button"。submit だと未入力の必須項目で検証に引っかかり、
+           ダイアログが閉じられなくなる。送信ボタンを1つにすることで、
+           入力欄で Enter を押したときも「保存」が実行される。 -->
+      <button class="btn" type="button" id="dlgCancel">キャンセル</button>
+      <button class="btn primary" value="ok" type="submit" id="dlgOk">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ==========================================================
+     1. 定数・ユーティリティ
+     ========================================================== */
+  const MAXM = 600;                       // シミュレーション上限 (50年)
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const INCOME_CATS  = ['給与', '賞与', '副業', '事業', '年金・給付', 'その他収入'];
+  const EXPENSE_CATS = ['住居', '食費', '水道光熱', '通信', '交通', '保険', '医療',
+                        '日用品', '被服', '教育', '交際費', '娯楽', 'その他支出'];
+
+  const yen  = n => '¥' + Math.round(n).toLocaleString('ja-JP');
+  const yen0 = n => Math.round(n).toLocaleString('ja-JP');
+  const pct  = n => (Math.round(n * 10) / 10).toFixed(1) + '%';
+  const uid  = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const esc = s => String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  // ローカル時刻での日付。toISOString() は UTC を返すので、日本時間だと朝9時前に前日へずれる。
+  const todayISO = () => {
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+           '-' + String(d.getDate()).padStart(2, '0');
+  };
+  const monthKey = iso => (iso || '').slice(0, 7);
+  const thisMonth = () => todayISO().slice(0, 7);
+
+  function addMonths(date, n) {
+    const d = new Date(date.getFullYear(), date.getMonth(), 1);
+    d.setMonth(d.getMonth() + n);
+    return d;
+  }
+  const fmtMonth = d => d.getFullYear() + '年' + (d.getMonth() + 1) + '月';
+  const fmtMonthShort = key => {
+    const [y, m] = key.split('-');
+    return (+m === 1 ? y.slice(2) + '/' : '') + (+m) + '月';
+  };
+  function monthsBetween(fromKey, toKey) {
+    const [y1, m1] = fromKey.split('-').map(Number);
+    const [y2, m2] = toKey.split('-').map(Number);
+    return (y2 - y1) * 12 + (m2 - m1);
+  }
+  function durationText(m) {
+    if (m == null) return '—';
+    const y = Math.floor(m / 12), r = m % 12;
+    if (y && r) return y + '年' + r + 'ヶ月';
+    if (y) return y + '年';
+    return r + 'ヶ月';
+  }
+
+  const ICON = {
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17.5v.01"/></svg>',
+    crit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.01"/></svg>',
+    ok:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m8 12 2.8 2.8L16 9.5"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.01"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
+  };
+
+  /* ==========================================================
+     2. 状態と保存
+     ========================================================== */
+  const blank = () => ({
+    debts: [], txns: [], repayments: [],
+    goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 },
+    v: 1
+  });
+
+  let state = blank();
+  let dbStats = null;
+  let online = true;
+
+  /** サーバーの応答を画面が期待する形に整える */
+  function adopt(p) {
+    state = Object.assign(blank(), p);
+    state.goals = Object.assign(blank().goals, p.goals || {});
+  }
+
+  // ここから下のデータ層は tools/build-web.js が Google スプレッドシート版に差し替える
+  /* ==========================================================
+   データ層 — Google スプレッドシート
+   tools/build-web.js が public/index.html のデータ層と差し替える。
+
+   ・ログインは Google。drive.file スコープなので、このアプリが作った
+     ファイルにしか触れない。他人の Drive は見えないし、こちらも見せない。
+   ・保存先は利用者自身の Drive に作る1枚のスプレッドシート。
+     つまり「誰がログインしたか」がそのまま「どのデータを見るか」になる。
+   ・書き込みは毎回、全シートを1回の batchUpdate で置き換える。
+     部分更新をしないので「返済は記録されたが残高が古いまま」が起きない。
+   ========================================================== */
+
+const SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const FILE_NAME = '返済ロードマップ';
+const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
+const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
+
+const LS = {
+  clientId: 'saimu.clientId',
+  fileId:   'saimu.fileId'
+};
+
+/* ---------- 表の形 ---------- */
+
+const TABLES = {
+  debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
+          'initial', 'rate', 'minPayment', 'createdAt'],
+  txns: ['id', 'type', 'date', 'amount', 'category', 'memo'],
+  repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
+  goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
+  meta: ['revision', 'updatedAt', 'app']
+};
+const NUMERIC = new Set(['principal', 'interestAccrued', 'initial', 'rate', 'minPayment',
+                         'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent',
+                         'revision']);
+
+/* ---------- 利息（db.js と同じ規則） ---------- */
+
+const DAY_BASIS_DB = 365;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function daysBetweenISO(fromISO, toISO) {
+  if (!ISO_DATE.test(fromISO || '') || !ISO_DATE.test(toISO || '')) return 0;
+  const [y1, m1, d1] = fromISO.split('-').map(Number);
+  const [y2, m2, d2] = toISO.split('-').map(Number);
+  return Math.max(0, Math.round((Date.UTC(y2, m2 - 1, d2) - Date.UTC(y1, m1 - 1, d1)) / 86400000));
+}
+/** 利息は元金にのみ付く。未払いのまま残った利息はそれ自身では増えない。 */
+const accrueOn = (principal, rate, days) => principal * (rate / 100 / DAY_BASIS_DB) * days;
+
+/* ---------- 値の正規化（db.js と同じ扱い） ---------- */
+
+const toNum = (v, def = 0) => {
+  const n = typeof v === 'number' ? v : parseFloat(String(v ?? '').replace(/[^\d.\-]/g, ''));
+  return Number.isFinite(n) ? n : def;
+};
+const strOf = (v, max = 200) => String(v ?? '').trim().slice(0, max);
+const dateOrDefault = (v, fallback) => (ISO_DATE.test(strOf(v, 10)) ? strOf(v, 10) : fallback);
+const nowISO = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') +
+         '-' + String(d.getDate()).padStart(2, '0');
+};
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+class Refused extends Error {}
+
+function debtFields(b) {
+  const split = b.principal != null || b.interestAccrued != null;
+  const principal = Math.max(0, split ? toNum(b.principal) : toNum(b.balance));
+  const interest = Math.max(0, toNum(b.interestAccrued));
+  const balance = principal + interest;
+  return {
+    principal, interestAccrued: interest,
+    accruedAt: dateOrDefault(b.accruedAt, nowISO()),
+    initial: Math.max(balance, toNum(b.initial) || balance),
+    rate: Math.min(100, Math.max(0, toNum(b.rate))),
+    minPayment: Math.max(0, toNum(b.minPayment))
+  };
+}
+
+/* ---------- ログイン ---------- */
+
+let clientId = localStorage.getItem(LS.clientId) || '';
+let tokenClient = null;
+let accessToken = null;
+let tokenExpires = 0;
+let profile = null;
+
+const setClientId = id => {
+  clientId = String(id || '').trim();
+  localStorage.setItem(LS.clientId, clientId);
+  tokenClient = null;
+};
+
+function gisReady() {
+  return new Promise((resolve, reject) => {
+    const t0 = Date.now();
+    (function poll() {
+      if (window.google && google.accounts && google.accounts.oauth2) return resolve();
+      if (Date.now() - t0 > 12000) return reject(new Error('Google のログイン部品を読み込めませんでした'));
+      setTimeout(poll, 60);
+    })();
+  });
+}
+
+/** アクセストークンを取る。1時間で切れるので、切れていれば取り直す。 */
+async function getToken(interactive) {
+  if (accessToken && Date.now() < tokenExpires - 60000) return accessToken;
+  if (!clientId) throw new Refused('クライアントIDが未設定です');
+  await gisReady();
+
+  return new Promise((resolve, reject) => {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: clientId,
+      scope: SCOPE,
+      callback: r => {
+        if (r.error) return reject(new Refused(r.error_description || r.error));
+        accessToken = r.access_token;
+        tokenExpires = Date.now() + (Number(r.expires_in || 3600) * 1000);
+        resolve(accessToken);
+      },
+      error_callback: e => reject(new Refused((e && e.message) || 'ログインを中断しました'))
+    });
+    // 初回は同意画面を出す。2回目以降は黙って取り直す。
+    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+  });
+}
+
+function signOut() {
+  if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
+    try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
+  }
+  accessToken = null; tokenExpires = 0; profile = null;
+  localStorage.removeItem(LS.fileId);
+}
+
+/* ---------- Google API 呼び出し ---------- */
+
+async function gapi(url, opts) {
+  opts = opts || {};
+  const token = await getToken(false);
+  const res = await fetch(url, {
+    method: opts.method || 'GET',
+    headers: Object.assign(
+      { Authorization: 'Bearer ' + token },
+      opts.body ? { 'Content-Type': 'application/json' } : {}),
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  if (res.status === 401) {          // トークンが切れていた。取り直して1度だけやり直す。
+    accessToken = null;
+    const fresh = await getToken(false);
+    const retry = await fetch(url, {
+      method: opts.method || 'GET',
+      headers: Object.assign(
+        { Authorization: 'Bearer ' + fresh },
+        opts.body ? { 'Content-Type': 'application/json' } : {}),
+      body: opts.body ? JSON.stringify(opts.body) : undefined
+    });
+    if (!retry.ok) throw new Error(await describe(retry));
+    return retry.json();
+  }
+  if (!res.ok) throw new Error(await describe(res));
+  return res.json();
+}
+
+async function describe(res) {
+  let detail = '';
+  try {
+    const j = await res.json();
+    detail = (j.error && (j.error.message || j.error.status)) || '';
+  } catch (e) { /* 本文が JSON でないこともある */ }
+  if (res.status === 403) return 'Google に拒否されました。' + (detail || 'スコープや権限を確認してください');
+  if (res.status === 429) return 'Google の利用上限に達しました。少し待ってからもう一度試してください';
+  return 'Google との通信に失敗しました（' + res.status + '）' + (detail ? ' ' + detail : '');
+}
+
+/* ---------- スプレッドシートの用意 ---------- */
+
+let fileId = localStorage.getItem(LS.fileId) || '';
+let sheetIds = {};       // 表の名前 → sheetId
+let rowCounts = {};      // 前回書いた行数。余りを空行で消すのに使う。
+let revision = 0;
+
+async function ensureFile() {
+  if (fileId) {
+    try {
+      await loadSheetIds();
+      return fileId;
+    } catch (e) {
+      fileId = '';                                   // 消された・共有が外れた等
+      localStorage.removeItem(LS.fileId);
+    }
+  }
+  // drive.file なので、ここで見えるのはこのアプリが作ったファイルだけ
+  const q = encodeURIComponent(
+    `name='${FILE_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`);
+  const found = await gapi(`${DRIVE_API}?q=${q}&fields=files(id,name)&pageSize=10`);
+  if (found.files && found.files.length) {
+    fileId = found.files[0].id;
+  } else {
+    const made = await gapi(SHEETS_API, {
+      method: 'POST',
+      body: {
+        properties: { title: FILE_NAME },
+        sheets: Object.keys(TABLES).map(name => ({ properties: { title: name } }))
+      }
+    });
+    fileId = made.spreadsheetId;
+  }
+  localStorage.setItem(LS.fileId, fileId);
+  await loadSheetIds();
+  return fileId;
+}
+
+async function loadSheetIds() {
+  const meta = await gapi(`${SHEETS_API}/${fileId}?fields=sheets(properties(sheetId,title))`);
+  sheetIds = {};
+  (meta.sheets || []).forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
+
+  // 足りない表があれば足す（古いファイルを開いたとき用）
+  const missing = Object.keys(TABLES).filter(t => sheetIds[t] === undefined);
+  if (missing.length) {
+    await gapi(`${SHEETS_API}/${fileId}:batchUpdate`, {
+      method: 'POST',
+      body: { requests: missing.map(title => ({ addSheet: { properties: { title } } })) }
+    });
+    const again = await gapi(`${SHEETS_API}/${fileId}?fields=sheets(properties(sheetId,title))`);
+    sheetIds = {};
+    (again.sheets || []).forEach(s => { sheetIds[s.properties.title] = s.properties.sheetId; });
+  }
+}
+
+/* ---------- 読み書き ---------- */
+
+const colLetter = n => String.fromCharCode(64 + n);
+const rangeOf = t => `${t}!A1:${colLetter(TABLES[t].length)}`;
+
+function rowsToObjects(table, rows) {
+  const cols = TABLES[table];
+  const out = [];
+  for (const row of (rows || []).slice(1)) {                 // 1行目は見出し
+    if (!row || row.every(c => String(c ?? '') === '')) continue;
+    const o = {};
+    cols.forEach((c, i) => {
+      const raw = row[i];
+      o[c] = NUMERIC.has(c) ? toNum(raw) : String(raw ?? '');
+    });
+    out.push(o);
+  }
+  return out;
+}
+
+async function readAll() {
+  const ranges = Object.keys(TABLES).map(t => `ranges=${encodeURIComponent(rangeOf(t))}`).join('&');
+  const got = await gapi(`${SHEETS_API}/${fileId}/values:batchGet?${ranges}&majorDimension=ROWS`);
+  const byTable = {};
+  Object.keys(TABLES).forEach((t, i) => {
+    const values = (got.valueRanges && got.valueRanges[i] && got.valueRanges[i].values) || [];
+    rowCounts[t] = Math.max(0, values.length - 1);
+    byTable[t] = rowsToObjects(t, values);
+  });
+
+  const g = byTable.goals[0] || {};
+  const m = byTable.meta[0] || {};
+  revision = toNum(m.revision);
+
+  return {
+    debts: byTable.debts,
+    txns: byTable.txns,
+    repayments: byTable.repayments,
+    goals: {
+      targetDate: g.targetDate || '',
+      monthlyRepay: toNum(g.monthlyRepay),
+      emergency: toNum(g.emergency),
+      emergencyCurrent: toNum(g.emergencyCurrent)
+    }
+  };
+}
+
+/** 全シートを1回の batchUpdate で置き換える。前回より短くなった分は空行で消す。 */
+async function writeAll(st) {
+  const payload = {
+    debts: st.debts, txns: st.txns, repayments: st.repayments,
+    goals: [st.goals],
+    meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
+  };
+
+  const requests = [];
+  for (const table of Object.keys(TABLES)) {
+    const cols = TABLES[table];
+    const data = payload[table] || [];
+    const body = data.map(o => cols.map(c => o[c]));
+    const blanks = Math.max(0, (rowCounts[table] || 0) - data.length);
+    const rows = [cols].concat(body).concat(
+      Array.from({ length: blanks }, () => cols.map(() => '')));
+
+    requests.push({
+      updateCells: {
+        range: { sheetId: sheetIds[table], startRowIndex: 0, startColumnIndex: 0 },
+        fields: 'userEnteredValue',
+        rows: rows.map(r => ({
+          values: r.map(v => ({
+            userEnteredValue: v === '' || v == null ? {}
+              : (typeof v === 'number' ? { numberValue: v } : { stringValue: String(v) })
+          }))
+        }))
+      }
+    });
+    rowCounts[table] = data.length;
+  }
+
+  await gapi(`${SHEETS_API}/${fileId}:batchUpdate`, { method: 'POST', body: { requests } });
+  revision += 1;
+}
+
+/** 他の端末が先に書いていないか確かめる。書き負けを黙って起こさないため。 */
+async function assertFresh() {
+  const got = await gapi(
+    `${SHEETS_API}/${fileId}/values:batchGet?ranges=${encodeURIComponent('meta!A1:C2')}`);
+  const rows = (got.valueRanges && got.valueRanges[0] && got.valueRanges[0].values) || [];
+  const theirs = toNum((rows[1] || [])[0]);
+  if (theirs > revision) {
+    throw new Error('別の端末で更新されています。画面を再読み込みしてから、もう一度お試しください');
+  }
+}
+
+/* ----------------------------------------------------------
+   server.js の JSON API と同じ形をブラウザ側で再現する。
+   呼び出し側（commit / 各画面）は元のままで動く。
+   ---------------------------------------------------------- */
+
+let mem = null;          // スプレッドシートに入っている生の状態
+
+/** 保存値は起算日時点。画面には今日時点の未払利息と残高を渡す。 */
+function derive(st) {
+  const today = nowISO();
+  return {
+    debts: st.debts.map(d => {
+      const days = daysBetweenISO(d.accruedAt, today);
+      const pending = accrueOn(d.principal, d.rate, days);
+      const interestToday = d.interestAccrued + pending;
+      return Object.assign({}, d, {
+        pendingDays: days,
+        pendingInterest: pending,
+        interestToday,
+        balance: d.principal + interestToday
+      });
+    }),
+    txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
+    repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
+    goals: st.goals
+  };
+}
+
+/* ---------- 変更の中身（db.js と同じ規則） ---------- */
+
+const findDebt = id => mem.debts.find(d => d.id === id);
+
+const MUT = {
+  addDebt(b) {
+    const name = strOf(b.name, 60);
+    if (!name) throw new Refused('借入先の名前を入力してください');
+    mem.debts.push(Object.assign({ id: newId(), name }, debtFields(b), { createdAt: nowISO() }));
+  },
+
+  updateDebt(id, b) {
+    const d = findDebt(id);
+    if (!d) throw new Refused('その借入は見つかりません');
+    const name = strOf(b.name, 60);
+    if (!name) throw new Refused('借入先の名前を入力してください');
+    Object.assign(d, { name }, debtFields(b));
+  },
+
+  deleteDebt(id) {
+    mem.debts = mem.debts.filter(d => d.id !== id);
+    mem.repayments = mem.repayments.filter(r => r.debtId !== id);   // ON DELETE CASCADE の代わり
+  },
+
+  /** 日割りで利息を積む → まず利息へ充当 → 残りを元金から引く。 */
+  addRepayment(b) {
+    const d = findDebt(strOf(b.debtId, 40));
+    if (!d) throw new Refused('その借入は見つかりません');
+    const amount = toNum(b.amount);
+    if (!(amount > 0)) throw new Refused('返済額は1円以上で入力してください');
+
+    const date = dateOrDefault(b.date, nowISO());
+    const accrued = d.interestAccrued + accrueOn(d.principal, d.rate, daysBetweenISO(d.accruedAt, date));
+    const paidInterest = Math.min(amount, accrued);
+    const paidPrincipal = Math.min(amount - paidInterest, d.principal);
+
+    mem.repayments.push({
+      id: newId(), debtId: d.id, date, amount,
+      interest: paidInterest, principal: paidPrincipal, memo: strOf(b.memo, 60)
+    });
+    d.principal -= paidPrincipal;
+    d.interestAccrued = accrued - paidInterest;
+    // 過去の日付で記録しても起算日は戻さない。戻すと同じ期間の利息を二度積む。
+    if (date > d.accruedAt) d.accruedAt = date;
+  },
+
+  deleteRepayment(id) {
+    const r = mem.repayments.find(x => x.id === id);
+    if (!r) return;
+    const d = findDebt(r.debtId);
+    if (d) {
+      d.principal += Math.max(0, r.principal);
+      d.interestAccrued += Math.max(0, r.interest);
+    }
+    mem.repayments = mem.repayments.filter(x => x.id !== id);
+  },
+
+  addTxn(b) {
+    const amount = toNum(b.amount);
+    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    mem.txns.push({
+      id: newId(),
+      type: b.type === 'income' ? 'income' : 'expense',
+      date: dateOrDefault(b.date, nowISO()),
+      amount,
+      category: strOf(b.category, 30) || 'その他',
+      memo: strOf(b.memo, 60)
+    });
+  },
+
+  deleteTxn(id) { mem.txns = mem.txns.filter(t => t.id !== id); },
+
+  setGoals(b) {
+    mem.goals = {
+      targetDate: dateOrDefault(b.targetDate, ''),
+      monthlyRepay: Math.max(0, toNum(b.monthlyRepay)),
+      emergency: Math.max(0, toNum(b.emergency)),
+      emergencyCurrent: Math.max(0, toNum(b.emergencyCurrent))
+    };
+  },
+
+  wipe() {
+    mem = { debts: [], txns: [], repayments: [],
+            goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
+  },
+
+  importState(p) {
+    if (!p || !Array.isArray(p.debts)) throw new Refused('バックアップの形式が違います');
+    const seen = new Set();
+    const debts = [];
+    for (const d of p.debts) {
+      const id = strOf(d.id, 40) || newId();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      debts.push(Object.assign({ id, name: strOf(d.name, 60) || '名称未設定' },
+        debtFields(d), { createdAt: dateOrDefault(d.createdAt, nowISO()) }));
+    }
+    const txns = [];
+    for (const t of (p.txns || [])) {
+      const amount = toNum(t.amount);
+      if (!(amount > 0)) continue;
+      txns.push({
+        id: strOf(t.id, 40) || newId(),
+        type: t.type === 'income' ? 'income' : 'expense',
+        date: dateOrDefault(t.date, nowISO()), amount,
+        category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60)
+      });
+    }
+    const repayments = [];
+    for (const r of (p.repayments || [])) {
+      const amount = toNum(r.amount);
+      if (!(amount > 0) || !seen.has(strOf(r.debtId, 40))) continue;   // 宛先の無い記録は捨てる
+      repayments.push({
+        id: strOf(r.id, 40) || newId(), debtId: strOf(r.debtId, 40),
+        date: dateOrDefault(r.date, nowISO()), amount,
+        interest: Math.max(0, toNum(r.interest)), principal: Math.max(0, toNum(r.principal)),
+        memo: strOf(r.memo, 60)
+      });
+    }
+    const g = p.goals || {};
+    mem = { debts, txns, repayments, goals: {
+      targetDate: dateOrDefault(g.targetDate, ''),
+      monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
+      emergency: Math.max(0, toNum(g.emergency)),
+      emergency_current: undefined,
+      emergencyCurrent: Math.max(0, toNum(g.emergencyCurrent))
+    } };
+    delete mem.goals.emergency_current;
+  },
+
+  loadSample() {
+    const now = new Date();
+    const mk = i => {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    };
+    const today = nowISO();
+    MUT.wipe();
+
+    const seeds = [
+      ['銀行カードローン', 1330000, 1500000, 14.5, 30000, 38000],
+      ['自動車ローン',     1030000, 1800000, 3.9,  32000, 32000],
+      ['クレジット分割',    320000,  400000, 15.0, 15000, 15000]
+    ].map(([name, prin, initial, rate, minPayment, pay]) => {
+      const d = { id: newId(), name, principal: prin, interestAccrued: 0,
+                  accruedAt: mk(6) + '-27', initial, rate, minPayment,
+                  createdAt: mk(10) + '-01' };
+      mem.debts.push(d);
+      return { d, pay };
+    });
+
+    const EX = [['住居', 82000], ['食費', 54000], ['水道光熱', 16500], ['通信', 9800],
+                ['交通', 12000], ['保険', 14000], ['日用品', 11500], ['交際費', 9000], ['娯楽', 7500]];
+
+    for (let i = 5; i >= 0; i--) {
+      const m = mk(i);
+      mem.txns.push({ id: newId(), type: 'income', date: m + '-25',
+                      amount: 328000 + (i % 2 ? 0 : 4000), category: '給与', memo: '' });
+      if (i === 1) mem.txns.push({ id: newId(), type: 'income', date: m + '-10',
+                                   amount: 420000, category: '賞与', memo: '夏季' });
+      EX.forEach(([c, v], k) => mem.txns.push({
+        id: newId(), type: 'expense', date: m + '-' + String(3 + k * 2).padStart(2, '0'),
+        amount: v + ((i * 7 + k * 3) % 5) * 400, category: c, memo: ''
+      }));
+      seeds.forEach(({ d, pay }) => {
+        const date = m + '-27';
+        if (date > today) return;                       // まだ来ていない返済日は記録しない
+        const interest = accrueOn(d.principal, d.rate, daysBetweenISO(d.accruedAt, date));
+        const paidInterest = Math.min(pay, interest);
+        const paidPrincipal = Math.min(pay - paidInterest, d.principal);
+        mem.repayments.push({ id: newId(), debtId: d.id, date, amount: pay,
+                              interest: paidInterest, principal: paidPrincipal, memo: '' });
+        d.principal -= paidPrincipal;
+        d.accruedAt = date;
+      });
+    }
+
+    mem.goals = { targetDate: (now.getFullYear() + 3) + '-03-31', monthlyRepay: 95000,
+                  emergency: 600000, emergencyCurrent: 180000 };
+  }
+};
+
+/* ---------- 入口 ---------- */
+
+async function api(path, method, body) {
+  const [, resource, id] = path.split('/');
+  const m = method || 'GET';
+
+  if (resource === 'state' && m === 'GET') return derive(mem);
+
+  if (resource === 'stats' && m === 'GET') {
+    return {
+      path: `https://docs.google.com/spreadsheets/d/${fileId}/edit`,
+      size: JSON.stringify(mem).length,
+      debts: mem.debts.length,
+      txns: mem.txns.length,
+      repayments: mem.repayments.length,
+      backupDir: 'Google ドライブ',
+      account: (profile && profile.email) || ''
+    };
+  }
+
+  // 書き込み。先に他端末の更新を確かめ、変更を適用してから全体を書き戻す。
+  const save = async fn => {
+    await assertFresh();
+    const before = JSON.stringify(mem);
+    try {
+      fn();
+      await writeAll(mem);
+    } catch (e) {
+      mem = JSON.parse(before);        // 書けなかったら手元も元に戻す
+      throw e;
+    }
+    return derive(mem);
+  };
+
+  switch (resource) {
+    case 'debts':
+      if (m === 'POST')   return save(() => MUT.addDebt(body));
+      if (m === 'PUT')    return save(() => MUT.updateDebt(id, body));
+      if (m === 'DELETE') return save(() => MUT.deleteDebt(id));
+      break;
+    case 'repayments':
+      if (m === 'POST')   return save(() => MUT.addRepayment(body));
+      if (m === 'DELETE') return save(() => MUT.deleteRepayment(id));
+      break;
+    case 'txns':
+      if (m === 'POST')   return save(() => MUT.addTxn(body));
+      if (m === 'DELETE') return save(() => MUT.deleteTxn(id));
+      break;
+    case 'goals':
+      if (m === 'PUT')    return save(() => MUT.setGoals(body));
+      break;
+    case 'import':
+      if (m === 'POST')   return save(() => MUT.importState(body));
+      break;
+    case 'sample':
+      if (m === 'POST')   return save(() => MUT.loadSample());
+      break;
+    case 'wipe':
+      if (m === 'POST')   return save(() => MUT.wipe());
+      break;
+    case 'backup': {
+      if (m !== 'POST') break;
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const copy = await gapi(`${DRIVE_API}/${fileId}/copy`, {
+        method: 'POST', body: { name: `${FILE_NAME} ${stamp}` }
+      });
+      return { file: copy.name, size: JSON.stringify(mem).length };
+    }
+  }
+
+  throw new Error('この操作には対応していません');
+}
+  
+
+  /**
+   * 書き込み。サーバーが返す更新後の全状態で置き換えてから再描画するので、
+   * 画面と DB の中身がずれることがない。
+   */
+  async function commit(path, method, body, okMsg) {
+    try {
+      adopt(await api(path, method, body));
+      online = true;
+      try { dbStats = await api('/stats'); } catch (e) { /* 表示用なので失敗は無視 */ }
+      render();
+      if (okMsg) toast(okMsg);
+      return true;
+    } catch (e) {
+      online = false;
+      render();
+      toast(e.message);
+      return false;
+    }
+  }
+
+  /* ----------------------------------------------------------
+   起動 — ログインしてから、自分のスプレッドシートを開く。
+   ---------------------------------------------------------- */
+
+function gateEl() { return document.getElementById('gate'); }
+
+function showGate(mode, detail) {
+  const g = gateEl();
+  const needsId = !clientId;
+  g.hidden = false;
+  g.innerHTML = `
+    <div class="gate-card">
+      <div class="gate-mark">返済ロードマップ</div>
+      ${needsId ? `
+        <h1>最初の設定</h1>
+        <p>Google Cloud で作った<b>クライアントID</b>を貼り付けてください。
+           この端末にだけ保存され、どこにも送信されません。</p>
+        <input type="text" id="gate-id" placeholder="000000000000-xxxxxxxx.apps.googleusercontent.com"
+               autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="gate-save">保存して次へ</button>
+        <p class="gate-note">手順は README の「Google Cloud の設定」を見てください。</p>
+      ` : `
+        <h1>ログイン</h1>
+        <p>あなたの Google ドライブにある<b>あなた自身のデータ</b>だけを開きます。
+           他の人のデータは見えませんし、あなたのデータも他の人には見えません。</p>
+        <button class="btn primary" id="gate-in">Google でログイン</button>
+        ${detail ? `<p class="gate-err">${esc(detail)}</p>` : ''}
+        <p class="gate-note">
+          このアプリが触れるのは、このアプリが作ったファイルだけです（<code>drive.file</code>）。
+          ドライブの他のファイルには一切アクセスしません。
+          <button class="linklike" id="gate-reset">クライアントIDを設定し直す</button>
+        </p>
+      `}
+    </div>`;
+
+  if (needsId) {
+    const input = document.getElementById('gate-id');
+    const go = () => {
+      const v = input.value.trim();
+      if (!v.includes('.apps.googleusercontent.com')) {
+        input.setCustomValidity('クライアントIDの形式ではありません');
+        input.reportValidity();
+        return;
+      }
+      setClientId(v);
+      showGate();
+    };
+    document.getElementById('gate-save').addEventListener('click', go);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    input.addEventListener('input', () => input.setCustomValidity(''));
+    input.focus();
+  } else {
+    document.getElementById('gate-in').addEventListener('click', signIn);
+    document.getElementById('gate-reset').addEventListener('click', () => {
+      setClientId('');
+      showGate();
+    });
+  }
+}
+
+function hideGate() { gateEl().hidden = true; }
+
+async function signIn() {
+  const btn = document.getElementById('gate-in');
+  if (btn) { btn.disabled = true; btn.textContent = 'ログイン中…'; }
+  try {
+    await getToken(true);
+    await afterSignIn();
+  } catch (e) {
+    showGate('in', e.message || 'ログインできませんでした');
+  }
+}
+
+/** ログイン後：本人確認 → 自分のファイルを用意 → 読み込み → 描画 */
+async function afterSignIn() {
+  try {
+    profile = await gapi('https://www.googleapis.com/oauth2/v3/userinfo');
+  } catch (e) {
+    profile = null;                                  // 表示用なので取れなくても続ける
+  }
+  await ensureFile();
+  mem = await readAll();
+  dbStats = await api('/stats');
+  adopt(await api('/state'));
+  online = true;
+  hideGate();
+  render();
+  if (profile && profile.email) toast(profile.email + ' として開きました');
+}
+
+async function boot() {
+  online = false;
+  mem = { debts: [], txns: [], repayments: [],
+          goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
+  adopt(mem);
+  render();
+
+  if (!clientId) { showGate(); return; }
+
+  // 前回ログイン済みなら、同意画面を出さずに黙って入り直す
+  try {
+    await getToken(false);
+    await afterSignIn();
+  } catch (e) {
+    showGate('in');
+  }
+}
+
+/** ヘッダのアカウント表示から呼ぶ。 */
+function signOutAndReset() {
+  signOut();
+  location.reload();
+}
+window.saimuSignOut = signOutAndReset;
+  
+
+  let toastTimer;
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ==========================================================
+     3. 金融計算
+     ========================================================== */
+  const DAY_BASIS = 365;                  // 年利を日割りする分母。うるう年も 365 日として扱う。
+
+  /** 日付を保ったまま n ヶ月後。31日など相手の月に無い日は月末に丸める。 */
+  function addMonthsExact(date, n) {
+    const d = new Date(date.getFullYear(), date.getMonth(), 1);
+    d.setMonth(d.getMonth() + n);
+    const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    d.setDate(Math.min(date.getDate(), last));
+    return d;
+  }
+  /** Date どうしの日数。過去に戻る向きは 0。 */
+  function daysApart(a, b) {
+    const u = x => Date.UTC(x.getFullYear(), x.getMonth(), x.getDate());
+    return Math.max(0, Math.round((u(b) - u(a)) / 86400000));
+  }
+  /** days 日分の利息。利息は元金にのみ付き、未払いの利息はそれ自身では増えない。 */
+  function interestFor(principal, rate, days) {
+    return principal * (rate / 100 / DAY_BASIS) * days;
+  }
+  /** 今日から1ヶ月後までに発生する利息。 */
+  function monthlyInterest(d) {
+    const t = new Date();
+    return interestFor(d.principal, d.rate, daysApart(t, addMonthsExact(t, 1)));
+  }
+
+  const totalBalance     = () => state.debts.reduce((s, d) => s + Math.max(0, d.balance), 0);
+  const totalPrincipal   = () => state.debts.reduce((s, d) => s + Math.max(0, d.principal), 0);
+  const totalInterestDue = () => state.debts.reduce((s, d) => s + Math.max(0, d.interestToday), 0);
+  const totalInitial     = () => state.debts.reduce((s, d) => s + Math.max(d.initial || 0, d.balance), 0);
+  const totalMinPayment  = () => state.debts.reduce((s, d) => (d.balance > 0 ? s + d.minPayment : s), 0);
+
+  /**
+   * 毎月の返済をシミュレートする。
+   * 利息は日割り（年利 ÷ 365 × 経過日数）で元金にのみ発生し、返済額はまず未払利息に、
+   * 残った分だけが元金に充当される。返済日は今日から1ヶ月刻みに置くので、
+   * 月ごとの日数の違い（28日／31日）もそのまま利息に効く。
+   * strategy: 'avalanche' 高金利優先 / 'snowball' 少額優先 / 'minimum' 最低返済のみ
+   * 返り値の payoffMonths が null なら期間内に完済しない。
+   */
+  function simulate(budget, strategy) {
+    const ds = state.debts
+      .filter(d => d.balance > 0.5)
+      .map(d => ({ id: d.id, name: d.name, prin: Math.max(0, d.principal),
+                   int: Math.max(0, d.interestToday), rate: d.rate, min: d.minPayment }));
+
+    if (!ds.length) return { months: [], totalInterest: 0, payoffMonths: 0, stalled: false, perDebt: {} };
+
+    const sumMin = ds.reduce((s, d) => s + d.min, 0);
+    const budgetUsed = strategy === 'minimum' ? sumMin : Math.max(budget, 0);
+
+    const months = [];
+    const perDebt = {};
+    ds.forEach(d => { perDebt[d.id] = { name: d.name, paidOff: null }; });
+    let totalInterest = 0, stalled = false;
+
+    const bal = d => d.prin + d.int;
+    /** 1件への充当。利息が先、余りが元金。 */
+    const apply = (d, pay) => {
+      const toInterest = Math.min(pay, d.int);
+      d.int -= toInterest;
+      d.prin = Math.max(0, d.prin - (pay - toInterest));
+    };
+
+    const start = new Date();
+    let cursor = start;
+
+    for (let m = 0; m < MAXM; m++) {
+      const live = ds.filter(d => bal(d) > 0.5);
+      if (!live.length) break;
+
+      // 前回の返済日から今回の返済日までの日数分、利息が発生する
+      const due = addMonthsExact(start, m + 1);
+      const days = daysApart(cursor, due);
+      cursor = due;
+
+      let mi = 0;
+      live.forEach(d => { const i = interestFor(d.prin, d.rate, days); d.int += i; mi += i; });
+      totalInterest += mi;
+
+      // 最低返済を全件に充当
+      let avail = budgetUsed;
+      live.forEach(d => {
+        const pay = Math.min(d.min, bal(d), avail);
+        apply(d, pay); avail -= pay;
+      });
+
+      // 余剰を戦略に従って1件へ集中
+      if (strategy !== 'minimum' && avail > 0.5) {
+        const rest = ds.filter(d => bal(d) > 0.5);
+        rest.sort(strategy === 'snowball' ? (a, b) => bal(a) - bal(b) : (a, b) => b.rate - a.rate);
+        for (const d of rest) {
+          if (avail <= 0.5) break;
+          const pay = Math.min(avail, bal(d));
+          apply(d, pay); avail -= pay;
+        }
+      }
+
+      live.forEach(d => { if (bal(d) <= 0.5 && perDebt[d.id].paidOff == null) perDebt[d.id].paidOff = m + 1; });
+
+      const tb = ds.reduce((s, d) => s + Math.max(0, bal(d)), 0);
+      months.push({ m: m + 1, balance: tb, interest: mi });
+
+      const L = months.length;
+      if (L >= 2 && months[L - 1].balance >= months[L - 2].balance - 0.5) { stalled = true; break; }
+    }
+
+    const done = !stalled && ds.every(d => bal(d) <= 0.5);
+    return {
+      months, totalInterest, perDebt, stalled,
+      payoffMonths: done ? months.length : null,
+      budgetUsed
+    };
+  }
+
+  /** 目標期間内に完済するのに必要な月額返済を二分探索で求める */
+  function requiredBudget(targetMonths) {
+    if (targetMonths <= 0) return null;
+    const tb = totalBalance();
+    if (tb <= 0) return 0;
+    let lo = 0, hi = tb * 1.5 + 10000;
+    if (!simulate(hi, 'avalanche').payoffMonths) return null;
+    for (let i = 0; i < 44; i++) {
+      const mid = (lo + hi) / 2;
+      const r = simulate(mid, 'avalanche');
+      if (r.payoffMonths && r.payoffMonths <= targetMonths) hi = mid; else lo = mid;
+    }
+    return Math.ceil(hi / 100) * 100;
+  }
+
+  /* ==========================================================
+     4. 集計
+     ========================================================== */
+  function monthSummary(key) {
+    let income = 0, expense = 0;
+    state.txns.forEach(t => {
+      if (monthKey(t.date) !== key) return;
+      if (t.type === 'income') income += t.amount; else expense += t.amount;
+    });
+    const repay = state.repayments
+      .filter(r => monthKey(r.date) === key)
+      .reduce((s, r) => s + r.amount, 0);
+    return { key, income, expense, repay, net: income - expense - repay };
+  }
+
+  /** 直近 n ヶ月（当月を含む）のキー配列 */
+  function recentMonths(n) {
+    const out = [];
+    const now = new Date();
+    for (let i = n - 1; i >= 0; i--) {
+      const d = addMonths(now, -i);
+      out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
+    }
+    return out;
+  }
+
+  /** 平均月次返済余力：直近 n ヶ月の (収入 - 生活支出) の平均 */
+  function avgCapacity(n) {
+    const keys = recentMonths(n).filter(k => {
+      return state.txns.some(t => monthKey(t.date) === k);
+    });
+    if (!keys.length) return null;
+    const tot = keys.reduce((s, k) => {
+      const m = monthSummary(k);
+      return s + (m.income - m.expense);
+    }, 0);
+    return tot / keys.length;
+  }
+
+  function expenseByCategory(key) {
+    const map = new Map();
+    state.txns.forEach(t => {
+      if (t.type !== 'expense' || monthKey(t.date) !== key) return;
+      map.set(t.category, (map.get(t.category) || 0) + t.amount);
+    });
+    let rows = [...map.entries()].map(([k, v]) => ({ label: k, value: v }))
+      .sort((a, b) => b.value - a.value);
+    // 系列は循環させない。8枠を超えたら「その他」に畳む。
+    if (rows.length > 7) {
+      const rest = rows.slice(7).reduce((s, r) => s + r.value, 0);
+      rows = rows.slice(0, 7).concat([{ label: 'その他の項目', value: rest }]);
+    }
+    return rows;
+  }
+
+  /* ==========================================================
+     5. チャート基盤
+     ========================================================== */
+  const SERIES = i => 'var(--s' + ((i % 8) + 1) + ')';
+  let observers = [];
+  function clearCharts() { observers.forEach(o => o.disconnect()); observers = []; }
+
+  function mountChart(el, draw) {
+    // 同じ要素に二重に監視をつけない
+    if (el.__ro) {
+      el.__ro.disconnect();
+      const i = observers.indexOf(el.__ro);
+      if (i >= 0) observers.splice(i, 1);
+    }
+    let last = 0;
+    const ro = new ResizeObserver(entries => {
+      const w = Math.max(260, Math.floor(entries[0].contentRect.width));
+      if (Math.abs(w - last) < 2) return;
+      last = w;
+      el.querySelectorAll('svg').forEach(s => s.remove());
+      draw(el, w);
+    });
+    ro.observe(el);
+    observers.push(ro);
+    el.__ro = ro;
+  }
+
+  function el(tag, attrs, style) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (style) e.setAttribute('style', style);
+    return e;
+  }
+
+  function tipFor(container) {
+    let t = container.querySelector('.tip');
+    if (!t) { t = document.createElement('div'); t.className = 'tip'; container.appendChild(t); }
+    return t;
+  }
+  function placeTip(container, tip, x, y) {
+    const cw = container.clientWidth;
+    tip.classList.add('show');
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = clamp(x - tw / 2, 4, Math.max(4, cw - tw - 4)) + 'px';
+    tip.style.top = Math.max(4, y - th - 12) + 'px';
+  }
+
+  /** 目盛りの丸め */
+  function niceTicks(max, count) {
+    if (max <= 0) return [0, 1];
+    const raw = max / count;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10) * mag;
+    const out = [];
+    for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+    if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+    return out;
+  }
+  function compact(n) {
+    const a = Math.abs(n);
+    if (a >= 1e8) return (n / 1e8).toFixed(a >= 1e9 ? 0 : 1).replace(/\.0$/, '') + '億';
+    if (a >= 1e4) return (n / 1e4).toFixed(a >= 1e6 ? 0 : 1).replace(/\.0$/, '') + '万';
+    return yen0(n);
+  }
+
+  /** 片側だけ角を丸めたバーのパス */
+  function barPath(x, y, w, h, r, dir) {
+    r = Math.max(0, Math.min(r, dir === 'up' ? w / 2 : h / 2, dir === 'up' ? h : w));
+    if (h <= 0 || w <= 0) return '';
+    if (dir === 'up') {
+      return `M${x},${y + h} L${x},${y + r} Q${x},${y} ${x + r},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h} Z`;
+    }
+    return `M${x},${y} L${x + w - r},${y} Q${x + w},${y} ${x + w},${y + r} L${x + w},${y + h - r} Q${x + w},${y + h} ${x + w - r},${y + h} L${x},${y + h} Z`;
+  }
+
+  /* ---------- 面グラフ（単一系列・十字カーソル） ---------- */
+  function areaChart(container, w, opts) {
+    const { points, height = 190, pad = { t: 16, r: 16, b: 26, l: 52 }, label, bleed } = opts;
+    if (!points.length) return;
+    const P = bleed ? { t: 14, r: 0, b: 24, l: 0 } : pad;
+    const iw = w - P.l - P.r, ih = height - P.t - P.b;
+    const svg = el('svg', { viewBox: `0 0 ${w} ${height}`, height, role: 'img',
+      'aria-label': (label || '推移') + 'の折れ線グラフ' });
+
+    const maxV = Math.max(...points.map(p => p.v), 1);
+    const ticks = niceTicks(maxV, 3);
+    const top = ticks[ticks.length - 1];
+    const X = i => P.l + (points.length === 1 ? iw / 2 : (i / (points.length - 1)) * iw);
+    const Y = v => P.t + ih - (v / top) * ih;
+
+    if (!bleed) {
+      ticks.forEach(t => {
+        svg.appendChild(el('line', { x1: P.l, x2: P.l + iw, y1: Y(t), y2: Y(t) },
+          'stroke:var(--grid);stroke-width:1'));
+        const tx = el('text', { x: P.l - 8, y: Y(t) + 3.5, 'text-anchor': 'end', class: 'tick' },
+          'fill:var(--ink-3)');
+        tx.textContent = compact(t);
+        svg.appendChild(tx);
+      });
+    } else {
+      ticks.forEach(t => {
+        if (t === 0) return;
+        svg.appendChild(el('line', { x1: 0, x2: w, y1: Y(t), y2: Y(t) },
+          'stroke:var(--grid);stroke-width:1'));
+      });
+    }
+
+    const gid = 'ag' + uid();
+    const defs = el('defs');
+    const grad = el('linearGradient', { id: gid, x1: 0, y1: 0, x2: 0, y2: 1 });
+    grad.appendChild(el('stop', { offset: '0%', 'stop-opacity': '.16' }, 'stop-color:var(--accent)'));
+    grad.appendChild(el('stop', { offset: '100%', 'stop-opacity': '.01' }, 'stop-color:var(--accent)'));
+    defs.appendChild(grad); svg.appendChild(defs);
+
+    const line = points.map((p, i) => (i ? 'L' : 'M') + X(i) + ',' + Y(p.v)).join(' ');
+    svg.appendChild(el('path', { d: `${line} L${X(points.length - 1)},${P.t + ih} L${X(0)},${P.t + ih} Z`, fill: `url(#${gid})` }));
+    svg.appendChild(el('path', { d: line, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' },
+      'stroke:var(--accent);stroke-width:2'));
+
+    // 軸ラベル（最初と最後のみ）
+    [0, points.length - 1].forEach((i, k) => {
+      if (points.length < 2 && k) return;
+      const t = el('text', { x: clamp(X(i), 16, w - 16), y: height - 7,
+        'text-anchor': k ? 'end' : 'start', class: 'tick' }, 'fill:var(--ink-3)');
+      t.textContent = points[i].label;
+      svg.appendChild(t);
+    });
+
+    // 終点のマーカー（サーフェスリング付き）
+    const li = points.length - 1;
+    svg.appendChild(el('circle', { cx: X(li), cy: Y(points[li].v), r: 5.5 },
+      'fill:var(--accent);stroke:var(--surface);stroke-width:2'));
+
+    // 十字カーソル
+    const cross = el('line', { y1: P.t, y2: P.t + ih, opacity: 0 }, 'stroke:var(--ink-3);stroke-width:1');
+    const dot = el('circle', { r: 4.5, opacity: 0 }, 'fill:var(--accent);stroke:var(--surface);stroke-width:2');
+    svg.appendChild(cross); svg.appendChild(dot);
+    const tip = tipFor(container);
+
+    svg.addEventListener('pointermove', ev => {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX - r.left) * (w / r.width);
+      let idx = points.length === 1 ? 0
+        : Math.round(((px - P.l) / iw) * (points.length - 1));
+      idx = clamp(idx, 0, points.length - 1);
+      const p = points[idx];
+      cross.setAttribute('x1', X(idx)); cross.setAttribute('x2', X(idx)); cross.setAttribute('opacity', .5);
+      dot.setAttribute('cx', X(idx)); dot.setAttribute('cy', Y(p.v)); dot.setAttribute('opacity', 1);
+      tip.innerHTML = `<div class="tip-t">${esc(p.full || p.label)}</div>
+        <div class="tip-r"><span class="tip-k"><i class="swatch" style="background:var(--accent)"></i>${esc(label || '残高')}</span><b>${yen(p.v)}</b></div>`;
+      placeTip(container, tip, X(idx) * (r.width / w), Y(p.v) * (r.height / height));
+    });
+    svg.addEventListener('pointerleave', () => {
+      cross.setAttribute('opacity', 0); dot.setAttribute('opacity', 0); tip.classList.remove('show');
+    });
+
+    container.appendChild(svg);
+  }
+
+  /* ---------- 横棒グラフ（カテゴリ別） ---------- */
+  function barsChart(container, w, opts) {
+    const { rows, colorFn, valueFmt = yen } = opts;
+    if (!rows.length) return;
+    const labelW = Math.min(112, Math.max(64, w * 0.26));
+    const P = { t: 6, r: 74, b: 6, l: labelW };
+    const bh = Math.min(24, Math.max(13, 240 / rows.length));
+    const gap = 12;
+    const height = P.t + P.b + rows.length * (bh + gap) - gap;
+    const iw = w - P.l - P.r;
+    const max = Math.max(...rows.map(r => r.value), 1);
+
+    const svg = el('svg', { viewBox: `0 0 ${w} ${height}`, height, role: 'img',
+      'aria-label': '項目別の横棒グラフ' });
+    const tip = tipFor(container);
+
+    rows.forEach((r, i) => {
+      const y = P.t + i * (bh + gap);
+      const bw = Math.max(2, (r.value / max) * iw);
+      const color = colorFn ? colorFn(r, i) : SERIES(i);
+
+      const lb = el('text', { x: P.l - 10, y: y + bh / 2 + 4, 'text-anchor': 'end', class: 'clabel' },
+        'fill:var(--ink-2)');
+      lb.textContent = r.label.length > 7 ? r.label.slice(0, 6) + '…' : r.label;
+      svg.appendChild(lb);
+
+      svg.appendChild(el('rect', { x: P.l, y, width: iw, height: bh, rx: 3 },
+        'fill:var(--surface-3);opacity:.55'));
+
+      const bar = el('path', { d: barPath(P.l, y, bw, bh, 4, 'right') }, 'fill:' + color);
+      svg.appendChild(bar);
+
+      const vl = el('text', { x: P.l + bw + 9, y: y + bh / 2 + 4, class: 'dlabel' }, 'fill:var(--ink-2)');
+      vl.textContent = valueFmt(r.value);
+      svg.appendChild(vl);
+
+      const hit = el('rect', { x: 0, y: y - gap / 2, width: w, height: bh + gap, fill: 'transparent' });
+      hit.style.cursor = 'default';
+      hit.addEventListener('pointerenter', () => {
+        bar.style.filter = 'brightness(1.08)';
+        tip.innerHTML = `<div class="tip-t">${esc(r.label)}</div>
+          <div class="tip-r"><span class="tip-k"><i class="swatch" style="background:${color}"></i>${esc(r.sub || '金額')}</span><b>${valueFmt(r.value)}</b></div>`;
+        const rc = svg.getBoundingClientRect();
+        placeTip(container, tip, (P.l + bw / 2) * (rc.width / w), (y) * (rc.height / height));
+      });
+      hit.addEventListener('pointerleave', () => { bar.style.filter = ''; tip.classList.remove('show'); });
+      svg.appendChild(hit);
+    });
+
+    container.appendChild(svg);
+  }
+
+  /* ---------- グループ縦棒（月次収支） ---------- */
+  function groupedColumns(container, w, opts) {
+    const { groups, series, height = 220 } = opts;
+    if (!groups.length) return;
+    const P = { t: 14, r: 12, b: 30, l: 52 };
+    const iw = w - P.l - P.r, ih = height - P.t - P.b;
+    const max = Math.max(1, ...groups.map(g => Math.max(...g.values)));
+    const ticks = niceTicks(max, 3);
+    const top = ticks[ticks.length - 1];
+
+    const svg = el('svg', { viewBox: `0 0 ${w} ${height}`, height, role: 'img',
+      'aria-label': '月ごとの収入・支出・返済の縦棒グラフ' });
+    const tip = tipFor(container);
+
+    ticks.forEach(t => {
+      const y = P.t + ih - (t / top) * ih;
+      svg.appendChild(el('line', { x1: P.l, x2: P.l + iw, y1: y, y2: y },
+        'stroke:' + (t === 0 ? 'var(--axis)' : 'var(--grid)') + ';stroke-width:1'));
+      const tx = el('text', { x: P.l - 8, y: y + 3.5, 'text-anchor': 'end', class: 'tick' }, 'fill:var(--ink-3)');
+      tx.textContent = compact(t);
+      svg.appendChild(tx);
+    });
+
+    const band = iw / groups.length;
+    const n = series.length;
+    const GAP = 2;                                   // サーフェスギャップ
+    const bw = Math.min(24, Math.max(5, (band * 0.66 - GAP * (n - 1)) / n));
+    const clusterW = bw * n + GAP * (n - 1);
+
+    groups.forEach((g, gi) => {
+      const cx = P.l + band * gi + band / 2;
+      const x0 = cx - clusterW / 2;
+
+      g.values.forEach((v, si) => {
+        const h = (v / top) * ih;
+        const x = x0 + si * (bw + GAP);
+        const y = P.t + ih - h;
+        if (h > 0.5) {
+          svg.appendChild(el('path', { d: barPath(x, y, bw, h, 4, 'up') },
+            'fill:' + series[si].color));
+        }
+      });
+
+      const lb = el('text', { x: cx, y: height - 9, 'text-anchor': 'middle', class: 'tick' },
+        'fill:var(--ink-3)');
+      lb.textContent = g.label;
+      svg.appendChild(lb);
+
+      const hit = el('rect', { x: P.l + band * gi, y: P.t, width: band, height: ih, fill: 'transparent' });
+      hit.addEventListener('pointerenter', () => {
+        tip.innerHTML = `<div class="tip-t">${esc(g.full || g.label)}</div>` +
+          series.map((s, si) => `<div class="tip-r"><span class="tip-k"><i class="swatch" style="background:${s.color}"></i>${esc(s.name)}</span><b>${yen(g.values[si])}</b></div>`).join('') +
+          `<div class="tip-r" style="margin-top:4px;padding-top:4px;border-top:1px solid var(--border)"><span class="tip-k">差引</span><b>${yen(g.net)}</b></div>`;
+        const rc = svg.getBoundingClientRect();
+        placeTip(container, tip, cx * (rc.width / w), P.t * (rc.height / height));
+      });
+      hit.addEventListener('pointerleave', () => tip.classList.remove('show'));
+      svg.appendChild(hit);
+    });
+
+    container.appendChild(svg);
+  }
+
+  /* ---------- 複数折れ線（戦略比較） ---------- */
+  function multiLine(container, w, opts) {
+    const { series, height = 250, xLabel } = opts;
+    const P = { t: 16, r: 84, b: 30, l: 56 };
+    const iw = w - P.l - P.r, ih = height - P.t - P.b;
+    const len = Math.max(...series.map(s => s.points.length), 1);
+    const max = Math.max(1, ...series.flatMap(s => s.points));
+    const ticks = niceTicks(max, 4);
+    const top = ticks[ticks.length - 1];
+    const X = i => P.l + (len === 1 ? 0 : (i / (len - 1)) * iw);
+    const Y = v => P.t + ih - (v / top) * ih;
+
+    const svg = el('svg', { viewBox: `0 0 ${w} ${height}`, height, role: 'img',
+      'aria-label': '返済戦略ごとの残高推移の比較グラフ' });
+    const tip = tipFor(container);
+
+    ticks.forEach(t => {
+      svg.appendChild(el('line', { x1: P.l, x2: P.l + iw, y1: Y(t), y2: Y(t) },
+        'stroke:' + (t === 0 ? 'var(--axis)' : 'var(--grid)') + ';stroke-width:1'));
+      const tx = el('text', { x: P.l - 8, y: Y(t) + 3.5, 'text-anchor': 'end', class: 'tick' }, 'fill:var(--ink-3)');
+      tx.textContent = compact(t);
+      svg.appendChild(tx);
+    });
+
+    // x 軸ラベル
+    [0, Math.floor((len - 1) / 2), len - 1].forEach((i, k) => {
+      if (i < 0) return;
+      const t = el('text', { x: clamp(X(i), P.l, P.l + iw), y: height - 9,
+        'text-anchor': k === 0 ? 'start' : k === 2 ? 'end' : 'middle', class: 'tick' }, 'fill:var(--ink-3)');
+      t.textContent = (i + 1) + 'ヶ月';
+      svg.appendChild(t);
+    });
+    if (xLabel) {
+      const t = el('text', { x: P.l, y: 10, class: 'clabel' }, 'fill:var(--ink-3)');
+      t.textContent = xLabel; svg.appendChild(t);
+    }
+
+    series.forEach(s => {
+      if (!s.points.length) return;
+      const d = s.points.map((v, i) => (i ? 'L' : 'M') + X(i) + ',' + Y(v)).join(' ');
+      svg.appendChild(el('path', { d, fill: 'none', 'stroke-linejoin': 'round', 'stroke-linecap': 'round' },
+        `stroke:${s.color};stroke-width:2`));
+      const li = s.points.length - 1;
+      svg.appendChild(el('circle', { cx: X(li), cy: Y(s.points[li]), r: 4.5 },
+        `fill:${s.color};stroke:var(--surface);stroke-width:2`));
+      // 完済点に直接ラベル（凡例を補う）
+      const lab = el('text', { x: Math.min(X(li) + 10, w - 4), y: Y(s.points[li]) + 4, class: 'dlabel' },
+        'fill:var(--ink-2)');
+      lab.textContent = s.payoff ? s.payoff + 'ヶ月' : '未完済';
+      svg.appendChild(lab);
+    });
+
+    const cross = el('line', { y1: P.t, y2: P.t + ih, opacity: 0 }, 'stroke:var(--ink-3);stroke-width:1');
+    svg.appendChild(cross);
+    svg.addEventListener('pointermove', ev => {
+      const r = svg.getBoundingClientRect();
+      const px = (ev.clientX - r.left) * (w / r.width);
+      let idx = clamp(Math.round(((px - P.l) / iw) * (len - 1)), 0, len - 1);
+      cross.setAttribute('x1', X(idx)); cross.setAttribute('x2', X(idx)); cross.setAttribute('opacity', .45);
+      tip.innerHTML = `<div class="tip-t">${idx + 1}ヶ月後の残高</div>` +
+        series.map(s => `<div class="tip-r"><span class="tip-k"><i class="swatch" style="background:${s.color}"></i>${esc(s.name)}</span><b>${idx < s.points.length ? yen(s.points[idx]) : '完済'}</b></div>`).join('');
+      placeTip(container, tip, X(idx) * (r.width / w), P.t * (r.height / height));
+    });
+    svg.addEventListener('pointerleave', () => { cross.setAttribute('opacity', 0); tip.classList.remove('show'); });
+
+    container.appendChild(svg);
+  }
+
+  function legendHTML(items) {
+    return '<div class="legend">' + items.map(i =>
+      `<span><i class="swatch" style="background:${i.color}"></i>${esc(i.name)}</span>`).join('') + '</div>';
+  }
+
+  /* ==========================================================
+     6. ビュー描画
+     ========================================================== */
+  let currentView = 'dash';
+  const V = {};
+
+  function render() {
+    clearCharts();
+    V[currentView]();
+    const note = document.getElementById('saveNote');
+    note.textContent = online
+      ? 'SQLite（saimu.db）に保存しています。'
+      : 'Google に接続できません。通信状況を確かめてから、もう一度お試しください。';
+    note.style.color = online ? '' : 'var(--crit-text)';
+  }
+
+  function headHTML(title, lede) {
+    return `<div class="view-head"><h1>${esc(title)}</h1><p class="lede">${lede}</p></div>`;
+  }
+
+  /* ---------- ダッシュボード ---------- */
+  V.dash = function () {
+    const root = document.getElementById('view-dash');
+    const tb = totalBalance();
+
+    if (!state.debts.length) {
+      root.innerHTML = headHTML('ダッシュボード', 'まず借入を登録すると、完済予定日と必要な毎月の返済額を計算します。') +
+        `<div class="empty">
+           <h3>借入がまだ登録されていません</h3>
+           <p>借入先・元金・未払利息・年利・最低返済額を登録すると、完済までの道のりと利息の総額がすぐに見えるようになります。利息はその後、日割りで自動計算されます。</p>
+           <div style="display:flex;gap:9px;flex-wrap:wrap;justify-content:center">
+             <button class="btn primary" data-act="add-debt">${ICON.plus}借入を登録する</button>
+             <button class="btn" data-act="sample">サンプルデータで試す</button>
+           </div>
+         </div>`;
+      return;
+    }
+
+    const budget = plannedBudget();
+    const sim = simulate(budget, 'avalanche');
+    const payoffDate = sim.payoffMonths ? fmtMonth(addMonths(new Date(), sim.payoffMonths)) : null;
+    const mk = thisMonth();
+    const ms = monthSummary(mk);
+    const init = totalInitial();
+    const progress = init > 0 ? ((init - tb) / init) * 100 : 0;
+    const sumMin = totalMinPayment();
+    const monthInterest = state.debts.reduce((s, d) => s + monthlyInterest(d), 0);
+    const dayInterest = state.debts.reduce((s, d) => s + interestFor(d.principal, d.rate, 1), 0);
+
+    const alerts = [];
+    state.debts.filter(d => d.balance > 0.5).forEach(d => {
+      if (d.minPayment <= monthlyInterest(d)) {
+        alerts.push(`<div class="callout crit">${ICON.crit}<div><b>${esc(d.name)}</b> は最低返済額（${yen(d.minPayment)}）が毎月の利息（${yen(monthlyInterest(d))}）を下回っています。このままでは残高が減りません。返済額を増やすか、借り換えを検討してください。</div></div>`);
+      }
+    });
+    if (budget < sumMin) {
+      alerts.push(`<div class="callout warn">${ICON.warn}<div>予定している月々の返済額 <b>${yen(budget)}</b> が、最低返済額の合計 <b>${yen(sumMin)}</b> に届いていません。目標画面で返済額を見直してください。</div></div>`);
+    }
+
+    root.innerHTML =
+      headHTML('ダッシュボード', `現在の残高と返済ペースから、完済までの道のりを計算しています。基準となる月々の返済額は <b class="num">${yen(budget)}</b> です。`) +
+
+      `<div class="roadmap">
+         <div class="roadmap-figure">
+           <div class="roadmap-label">完済予定</div>
+           ${payoffDate
+            ? `<div class="hero-figure">${payoffDate}</div>
+               <div class="roadmap-sub">あと <b class="num">${durationText(sim.payoffMonths)}</b>・支払う利息 <b class="num">${yen(sim.totalInterest)}</b></div>`
+            : `<div class="hero-figure is-muted">計算できません</div>
+               <div class="roadmap-sub">今の返済額では残高が減りません。返済額を増やすと予定日が表示されます。</div>`}
+         </div>
+         <div class="roadmap-chart chart" id="ch-road"></div>
+       </div>
+
+       ${alerts.join('')}
+
+       <div class="grid g-4" style="margin-top:16px">
+         <div class="tile">
+           <span class="tile-label">借入残高の合計</span>
+           <span class="tile-value neg">${yen(tb)}</span>
+           <span class="tile-delta">元金 ${compact(totalPrincipal())}・未払利息 ${compact(totalInterestDue())}</span>
+         </div>
+         <div class="tile">
+           <span class="tile-label">返済の進捗</span>
+           <span class="tile-value">${pct(progress)}</span>
+           <div class="meter ${progress >= 60 ? 'is-good' : ''}" style="margin-top:6px"><i style="width:${clamp(progress, 0, 100)}%"></i></div>
+         </div>
+         <div class="tile">
+           <span class="tile-label">今月の収支（返済後）</span>
+           <span class="tile-value ${ms.net < 0 ? 'neg' : 'pos'}">${yen(ms.net)}</span>
+           <span class="tile-delta">収入 ${compact(ms.income)}・支出 ${compact(ms.expense)}・返済 ${compact(ms.repay)}</span>
+         </div>
+         <div class="tile">
+           <span class="tile-label">これから1ヶ月の利息</span>
+           <span class="tile-value">${yen(monthInterest)}</span>
+           <span class="tile-delta">日割りで ${yen(dayInterest)}/日・最低返済額 ${compact(sumMin)}</span>
+         </div>
+       </div>
+
+       <div class="grid g-2" style="margin-top:16px">
+         <div class="panel">
+           <div class="panel-head"><h2>借入先ごとの残高</h2><span class="hint">完済予定順</span></div>
+           <div class="panel-body"><div class="chart" id="ch-debts"></div>
+             <details class="tableview"><summary>数値で見る</summary><div id="tb-debts"></div></details>
+           </div>
+         </div>
+         <div class="panel">
+           <div class="panel-head"><h2>月次の収入・支出・返済</h2><span class="hint">直近6ヶ月</span></div>
+           <div class="panel-body"><div class="chart" id="ch-cash"></div>
+             <div id="lg-cash"></div>
+             <details class="tableview"><summary>数値で見る</summary><div id="tb-cash"></div></details>
+           </div>
+         </div>
+       </div>`;
+
+    // 残高の降下カーブ
+    const road = document.getElementById('ch-road');
+    const pts = [{ v: tb, label: '現在', full: '現在' }].concat(
+      sim.months.map((m, i) => ({
+        v: m.balance,
+        label: sim.payoffMonths && i === sim.months.length - 1 ? '完済' : (m.m + 'ヶ月'),
+        full: fmtMonth(addMonths(new Date(), m.m))
+      })));
+    mountChart(road, (c, w) => areaChart(c, w, { points: pts, height: 190, bleed: true, label: '残高' }));
+
+    // 借入先ごとの残高（完済予定順）
+    const dRows = state.debts.filter(d => d.balance > 0.5)
+      .map(d => ({ ...d, off: sim.perDebt[d.id] ? sim.perDebt[d.id].paidOff : null }))
+      .sort((a, b) => (a.off ?? 9999) - (b.off ?? 9999))
+      .map((d, i) => ({ label: d.name, value: d.balance, sub: '残高', off: d.off, rate: d.rate,
+                        prin: d.principal, int: d.interestToday, _i: i }));
+    const dc = document.getElementById('ch-debts');
+    if (dRows.length) {
+      mountChart(dc, (c, w) => barsChart(c, w, { rows: dRows, colorFn: (r) => SERIES(r._i) }));
+      document.getElementById('tb-debts').innerHTML = `<div class="table-wrap"><table class="ledger">
+        <thead><tr><th>借入先</th><th class="r">元金</th><th class="r">未払利息</th><th class="r">残高</th><th class="r">年利</th><th class="r">完済まで</th></tr></thead>
+        <tbody>${dRows.map(r => `<tr>
+          <td><span style="display:inline-flex;align-items:center;gap:7px"><i class="swatch" style="background:${SERIES(r._i)}"></i>${esc(r.label)}</span></td>
+          <td class="r">${yen(r.prin)}</td>
+          <td class="r" style="color:var(--ink-2)">${yen(r.int)}</td>
+          <td class="r">${yen(r.value)}</td><td class="r">${r.rate}%</td>
+          <td class="r">${r.off ? durationText(r.off) : '—'}</td></tr>`).join('')}</tbody></table></div>`;
+    } else {
+      dc.innerHTML = '<p style="color:var(--ink-3);font-size:13px">残高のある借入がありません。</p>';
+    }
+
+    // 月次収支
+    renderCashChart('ch-cash', 'lg-cash', 'tb-cash', 6);
+  };
+
+  function renderCashChart(chartId, legendId, tableId, n) {
+    const keys = recentMonths(n);
+    const sums = keys.map(monthSummary);
+    const series = [
+      { name: '収入', color: SERIES(0) },
+      { name: '生活支出', color: SERIES(1) },
+      { name: '返済', color: SERIES(2) }
+    ];
+    const groups = sums.map(s => ({
+      label: fmtMonthShort(s.key), full: s.key.replace('-', '年') + '月',
+      values: [s.income, s.expense, s.repay], net: s.net
+    }));
+    const c = document.getElementById(chartId);
+    if (!sums.some(s => s.income || s.expense || s.repay)) {
+      c.innerHTML = '<p style="color:var(--ink-3);font-size:13px;padding:24px 0">収入・支出・返済の記録がまだありません。</p>';
+      if (legendId) document.getElementById(legendId).innerHTML = '';
+      if (tableId) document.getElementById(tableId).innerHTML = '';
+      return;
+    }
+    mountChart(c, (cc, w) => groupedColumns(cc, w, { groups, series }));
+    if (legendId) document.getElementById(legendId).innerHTML = legendHTML(series);
+    if (tableId) {
+      document.getElementById(tableId).innerHTML = `<div class="table-wrap"><table class="ledger">
+        <thead><tr><th>月</th><th class="r">収入</th><th class="r">生活支出</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
+        <tbody>${sums.map(s => `<tr><td>${esc(s.key)}</td>
+          <td class="r">${yen(s.income)}</td><td class="r">${yen(s.expense)}</td>
+          <td class="r">${yen(s.repay)}</td>
+          <td class="r ${s.net < 0 ? 'amt-neg' : 'amt-pos'}">${yen(s.net)}</td></tr>`).join('')}</tbody>
+        <tfoot><tr><td>合計</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.income, 0))}</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.repay, 0))}</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.net, 0))}</td></tr></tfoot></table></div>`;
+    }
+  }
+
+  /** 計画上の月々の返済額：目標 > 直近実績の平均 > 最低返済額合計 */
+  function plannedBudget() {
+    if (state.goals.monthlyRepay > 0) return state.goals.monthlyRepay;
+    const keys = recentMonths(3);
+    const paid = keys.map(k => monthSummary(k).repay).filter(v => v > 0);
+    if (paid.length) return paid.reduce((a, b) => a + b, 0) / paid.length;
+    return totalMinPayment();
+  }
+
+  /* ---------- 借入・返済 ---------- */
+  V.debts = function () {
+    const root = document.getElementById('view-debts');
+    const sim = simulate(plannedBudget(), 'avalanche');
+
+    const cards = state.debts.map((d, i) => {
+      const int = monthlyInterest(d);
+      const init = Math.max(d.initial || 0, d.balance);
+      const prog = init > 0 ? ((init - d.balance) / init) * 100 : 100;
+      const off = sim.perDebt[d.id] ? sim.perDebt[d.id].paidOff : null;
+      const cleared = d.balance <= 0.5;
+      const stuck = !cleared && d.minPayment <= int;
+      const pill = cleared
+        ? `<span class="pill ok">${ICON.ok}完済</span>`
+        : stuck ? `<span class="pill crit">${ICON.crit}元金が減りません</span>`
+        : off ? `<span class="pill flat">あと ${durationText(off)}</span>`
+        : `<span class="pill warn">${ICON.warn}期間内に完済しません</span>`;
+
+      return `<div class="debt-card">
+        <div class="debt-top">
+          <div>
+            <div class="debt-name"><i class="swatch" style="background:${SERIES(i)};width:10px;height:10px"></i>${esc(d.name)}</div>
+            <div class="debt-bal ${cleared ? '' : 'amt-neg'}" style="margin-top:2px">${yen(d.balance)}</div>
+            <div style="font-size:12px;color:var(--ink-2);margin-top:2px">
+              元金 <b>${yen(d.principal)}</b>　＋　未払利息 <b>${yen(d.interestToday)}</b></div>
+          </div>
+          ${pill}
+        </div>
+        <div class="meter ${cleared ? 'is-good' : stuck ? 'is-crit' : ''}"><i style="width:${clamp(prog, 0, 100)}%"></i></div>
+        <div class="debt-meta">
+          <span>年利 <b>${d.rate}%</b></span>
+          <span>最低返済 <b>${yen(d.minPayment)}</b></span>
+          <span title="元金 ${yen0(d.principal)} × ${d.rate}% ÷ ${DAY_BASIS}日">利息 <b>${yen(interestFor(d.principal, d.rate, 1))}/日</b>・<b>${yen(int)}/月</b></span>
+          <span>返済済み <b>${pct(prog)}</b></span>
+        </div>
+        <div class="debt-actions">
+          <button class="btn sm primary" data-act="pay" data-id="${d.id}" ${cleared ? 'disabled' : ''}>返済を記録</button>
+          <button class="btn sm" data-act="edit-debt" data-id="${d.id}">編集</button>
+          <button class="btn sm danger" data-act="del-debt" data-id="${d.id}">削除</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    const reps = [...state.repayments].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40);
+    const nameOf = id => (state.debts.find(d => d.id === id) || {}).name || '（削除済み）';
+
+    root.innerHTML =
+      headHTML('借入・返済', '借入ごとに<b>元金</b>と<b>未払利息</b>を登録すると、以降の利息は<b>日割り</b>（年利 ÷ 365 × 経過日数）で自動計算されます。返済を記録すると、返済額はまず利息に充当され、残った分が元金から引かれます。') +
+      `<div class="toolbar">
+         <button class="btn primary" data-act="add-debt">${ICON.plus}借入を追加</button>
+         <div class="spacer"></div>
+         <span style="font-size:12.5px;color:var(--ink-2)">残高合計 <b class="num" style="color:var(--ink)">${yen(totalBalance())}</b>（元金 ${yen(totalPrincipal())}＋未払利息 ${yen(totalInterestDue())}）　最低返済額 <b class="num" style="color:var(--ink)">${yen(totalMinPayment())}/月</b></span>
+       </div>` +
+      (state.debts.length
+        ? `<div class="grid g-2">${cards}</div>`
+        : `<div class="empty"><h3>借入がありません</h3><p>「借入を追加」から、借入先・元金・未払利息・年利・毎月の最低返済額を登録してください。</p>
+             <button class="btn primary" data-act="add-debt">${ICON.plus}借入を追加</button></div>`) +
+
+      `<div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>返済の記録</h2><span class="hint">直近40件</span></div>
+         <div class="panel-body">
+           ${reps.length ? `<div class="table-wrap"><table class="ledger">
+             <thead><tr><th>日付</th><th>借入先</th><th class="r">返済額</th><th class="r">うち利息</th><th class="r">うち元金</th><th>メモ</th><th></th></tr></thead>
+             <tbody>${reps.map(r => `<tr>
+               <td class="r" style="text-align:left">${esc(r.date)}</td>
+               <td>${esc(nameOf(r.debtId))}</td>
+               <td class="r">${yen(r.amount)}</td>
+               <td class="r" style="color:var(--ink-2)">${yen(r.interest)}</td>
+               <td class="r ${r.principal < 0 ? 'amt-neg' : ''}">${yen(r.principal)}</td>
+               <td style="color:var(--ink-2)">${esc(r.memo || '')}</td>
+               <td class="r"><button class="btn sm danger" data-act="del-rep" data-id="${r.id}">取消</button></td>
+             </tr>`).join('')}</tbody></table></div>`
+             : `<p style="color:var(--ink-3);font-size:13px">まだ返済の記録がありません。借入カードの「返済を記録」から登録してください。</p>`}
+         </div>
+       </div>`;
+  };
+
+  /* ---------- 収入・支出 ---------- */
+  let cashMonth = thisMonth();
+
+  V.cash = function () {
+    const root = document.getElementById('view-cash');
+    const s = monthSummary(cashMonth);
+    const rows = state.txns.filter(t => monthKey(t.date) === cashMonth)
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const cats = expenseByCategory(cashMonth);
+    const repRows = state.repayments.filter(r => monthKey(r.date) === cashMonth);
+
+    root.innerHTML =
+      headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。<b>収入 − 生活支出 − 返済 = 返済に回せる余力</b>です。') +
+      `<div class="toolbar">
+         <button class="btn primary" data-act="add-income">${ICON.plus}収入を追加</button>
+         <button class="btn" data-act="add-expense">${ICON.plus}支出を追加</button>
+         <div class="spacer"></div>
+         <div class="field" style="flex-direction:row;align-items:center;gap:8px">
+           <label for="mSel" style="white-space:nowrap">対象月</label>
+           <input type="month" id="mSel" value="${cashMonth}" style="width:auto">
+         </div>
+       </div>
+
+       <div class="grid g-4">
+         <div class="tile"><span class="tile-label">収入</span><span class="tile-value pos">${yen(s.income)}</span></div>
+         <div class="tile"><span class="tile-label">生活支出</span><span class="tile-value">${yen(s.expense)}</span></div>
+         <div class="tile"><span class="tile-label">返済</span><span class="tile-value">${yen(s.repay)}</span>
+           <span class="tile-delta">${repRows.length}件の記録</span></div>
+         <div class="tile"><span class="tile-label">残り（貯蓄・繰上返済の余力）</span>
+           <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span></div>
+       </div>
+
+       <div class="grid g-2" style="margin-top:16px">
+         <div class="panel">
+           <div class="panel-head"><h2>支出の内訳</h2><span class="hint">${esc(cashMonth)}</span></div>
+           <div class="panel-body"><div class="chart" id="ch-cat"></div></div>
+         </div>
+         <div class="panel">
+           <div class="panel-head"><h2>収支の推移</h2><span class="hint">直近12ヶ月</span></div>
+           <div class="panel-body"><div class="chart" id="ch-cash12"></div><div id="lg-cash12"></div></div>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>${esc(cashMonth)} の明細</h2><span class="hint">${rows.length}件</span></div>
+         <div class="panel-body">
+           ${rows.length ? `<div class="table-wrap"><table class="ledger">
+             <thead><tr><th>日付</th><th>区分</th><th>カテゴリ</th><th class="r">金額</th><th>メモ</th><th></th></tr></thead>
+             <tbody>${rows.map(t => `<tr>
+               <td>${esc(t.date)}</td>
+               <td>${t.type === 'income'
+                 ? '<span class="pill ok">収入</span>'
+                 : '<span class="pill flat">支出</span>'}</td>
+               <td>${esc(t.category)}</td>
+               <td class="r ${t.type === 'income' ? 'amt-pos' : ''}">${t.type === 'income' ? '+' : '−'}${yen0(t.amount)}</td>
+               <td style="color:var(--ink-2)">${esc(t.memo || '')}</td>
+               <td class="r"><button class="btn sm danger" data-act="del-txn" data-id="${t.id}">削除</button></td>
+             </tr>`).join('')}</tbody>
+             <tfoot><tr><td colspan="3">差引（返済前）</td>
+               <td class="r ${s.income - s.expense < 0 ? 'amt-neg' : 'amt-pos'}">${yen(s.income - s.expense)}</td>
+               <td colspan="2"></td></tr></tfoot></table></div>`
+             : `<p style="color:var(--ink-3);font-size:13px">この月の記録はまだありません。</p>`}
+         </div>
+       </div>`;
+
+    document.getElementById('mSel').addEventListener('change', e => {
+      cashMonth = e.target.value || thisMonth();
+      render();
+    });
+
+    const cc = document.getElementById('ch-cat');
+    if (cats.length) {
+      mountChart(cc, (c, w) => barsChart(c, w, { rows: cats, colorFn: (r, i) => SERIES(i) }));
+    } else {
+      cc.innerHTML = '<p style="color:var(--ink-3);font-size:13px;padding:24px 0">この月の支出記録がありません。</p>';
+    }
+    renderCashChart('ch-cash12', 'lg-cash12', null, 12);
+  };
+
+  /* ---------- 目標 ---------- */
+  V.goals = function () {
+    const root = document.getElementById('view-goals');
+    const g = state.goals;
+    const tb = totalBalance();
+    const sumMin = totalMinPayment();
+    const cap = avgCapacity(3);
+
+    let targetBlock;
+    if (!g.targetDate) {
+      targetBlock = `<p style="color:var(--ink-3);font-size:13px">完済の目標日を設定すると、そこから逆算して毎月いくら返済すればよいかを計算します。</p>`;
+    } else if (tb <= 0) {
+      targetBlock = `<div class="callout info">${ICON.ok}<div>借入残高はゼロです。おめでとうございます。</div></div>`;
+    } else {
+      const tm = monthsBetween(thisMonth(), monthKey(g.targetDate));
+      if (tm <= 0) {
+        targetBlock = `<div class="callout warn">${ICON.warn}<div>目標日が過去または今月です。将来の日付を設定してください。</div></div>`;
+      } else {
+        const need = requiredBudget(tm);
+        const gap = need == null ? null : need - (cap ?? 0);
+        targetBlock = `
+          <div class="grid g-3" style="gap:14px">
+            <div class="tile"><span class="tile-label">目標までの期間</span><span class="tile-value">${durationText(tm)}</span>
+              <span class="tile-delta">${esc(g.targetDate)} まで</span></div>
+            <div class="tile"><span class="tile-label">必要な月々の返済額</span>
+              <span class="tile-value">${need == null ? '—' : yen(need)}</span>
+              <span class="tile-delta">高金利優先で返済した場合</span></div>
+            <div class="tile"><span class="tile-label">直近3ヶ月の平均余力</span>
+              <span class="tile-value ${cap != null && need != null && cap < need ? 'neg' : 'pos'}">${cap == null ? '—' : yen(cap)}</span>
+              <span class="tile-delta">収入 − 生活支出の平均</span></div>
+          </div>
+          ${need == null
+            ? `<div class="callout crit" style="margin-top:13px">${ICON.crit}<div>この期間内に完済できる返済額が見つかりませんでした。目標日を先に延ばすか、借り換えで金利を下げることを検討してください。</div></div>`
+            : cap == null
+            ? `<div class="callout info" style="margin-top:13px">${ICON.info}<div>収入と支出を記録すると、必要な返済額 <b>${yen(need)}</b> に対して余力が足りているかを判定できます。</div></div>`
+            : gap > 0
+            ? (() => {
+                const at = simulate(cap, 'avalanche').payoffMonths;
+                const alt = at
+                  ? `今の余力のままなら完済は <b>${fmtMonth(addMonths(new Date(), at))}</b> 頃です。目標日をそこまで延ばすか、支出を見直して返済に回す額を増やしてください。`
+                  : `今の余力のままでは残高が減りません。支出の見直しか、金利の低い借入への借り換えを検討してください。`;
+                return `<div class="callout warn" style="margin-top:13px">${ICON.warn}<div>目標達成には毎月 <b>${yen(need)}</b> が必要ですが、平均余力は <b>${yen(cap)}</b> で、<b>${yen(gap)}</b> 足りません。${alt}</div></div>`;
+              })()
+            : `<div class="callout info" style="margin-top:13px">${ICON.ok}<div>平均余力 <b>${yen(cap)}</b> は必要額 <b>${yen(need)}</b> を上回っています。この調子で毎月の返済を続ければ目標日に間に合います。</div></div>`}`;
+      }
+    }
+
+    // 今月の返済目標の進捗
+    const mrepay = monthSummary(thisMonth()).repay;
+    const mgoal = g.monthlyRepay || 0;
+    const mprog = mgoal > 0 ? (mrepay / mgoal) * 100 : 0;
+
+    // 生活防衛資金
+    const ef = g.emergency || 0, efc = g.emergencyCurrent || 0;
+    const efprog = ef > 0 ? (efc / ef) * 100 : 0;
+
+    root.innerHTML =
+      headHTML('目標', '完済したい時期と、毎月の返済額の目標を決めます。目標から逆算した必要額と、いまの家計の余力を突き合わせて過不足を判定します。') +
+
+      `<div class="panel">
+         <div class="panel-head"><h2>目標の設定</h2>
+           <button class="btn sm" data-act="edit-goals">編集</button></div>
+         <div class="panel-body">
+           <div class="grid g-3" style="gap:14px">
+             <div class="field"><label>完済の目標日</label>
+               <div class="num" style="font-size:15px">${g.targetDate ? esc(g.targetDate) : '<span style="color:var(--ink-3);font-family:var(--sans)">未設定</span>'}</div></div>
+             <div class="field"><label>月々の返済目標</label>
+               <div class="num" style="font-size:15px">${mgoal ? yen(mgoal) : '<span style="color:var(--ink-3);font-family:var(--sans)">未設定</span>'}</div>
+               <span class="note">最低返済額の合計は ${yen(sumMin)}</span></div>
+             <div class="field"><label>生活防衛資金の目標</label>
+               <div class="num" style="font-size:15px">${ef ? yen(ef) : '<span style="color:var(--ink-3);font-family:var(--sans)">未設定</span>'}</div>
+               <span class="note">現在 ${yen(efc)}</span></div>
+           </div>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>完済目標からの逆算</h2></div>
+         <div class="panel-body">${targetBlock}</div>
+       </div>
+
+       <div class="grid g-2" style="margin-top:16px">
+         <div class="panel">
+           <div class="panel-head"><h2>今月の返済目標</h2><span class="hint">${esc(thisMonth())}</span></div>
+           <div class="panel-body">
+             ${mgoal > 0
+              ? `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">
+                   <span class="num" style="font-size:24px;font-family:var(--sans);font-weight:600">${yen(mrepay)}</span>
+                   <span style="font-size:12.5px;color:var(--ink-2)">目標 <b class="num">${yen(mgoal)}</b>（${pct(clamp(mprog, 0, 999))}）</span>
+                 </div>
+                 <div class="meter ${mprog >= 100 ? 'is-good' : mprog >= 60 ? '' : 'is-warn'}"><i style="width:${clamp(mprog, 0, 100)}%"></i></div>
+                 <p style="font-size:12.5px;color:var(--ink-2);margin-top:9px">${mprog >= 100
+                   ? '今月の目標を達成しています。'
+                   : 'あと <b class="num">' + yen(mgoal - mrepay) + '</b> で今月の目標に届きます。'}</p>`
+              : `<p style="color:var(--ink-3);font-size:13px">月々の返済目標を設定すると、達成度をここに表示します。</p>`}
+           </div>
+         </div>
+         <div class="panel">
+           <div class="panel-head"><h2>生活防衛資金</h2><span class="hint">返済と並行して確保する</span></div>
+           <div class="panel-body">
+             ${ef > 0
+              ? `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">
+                   <span class="num" style="font-size:24px;font-family:var(--sans);font-weight:600">${yen(efc)}</span>
+                   <span style="font-size:12.5px;color:var(--ink-2)">目標 <b class="num">${yen(ef)}</b>（${pct(clamp(efprog, 0, 999))}）</span>
+                 </div>
+                 <div class="meter ${efprog >= 100 ? 'is-good' : ''}"><i style="width:${clamp(efprog, 0, 100)}%"></i></div>
+                 <p style="font-size:12.5px;color:var(--ink-2);margin-top:9px">急な出費で新たな借入をしないための備えです。生活費の3〜6ヶ月分が一つの目安とされます。</p>`
+              : `<p style="color:var(--ink-3);font-size:13px">目標額を設定すると、積立の進捗をここに表示します。</p>`}
+           </div>
+         </div>
+       </div>`;
+  };
+
+  /* ---------- シミュレーション ---------- */
+  let simExtra = null;   // 追加返済額（最低返済額に上乗せする分）
+
+  function computeStrategies(budget) {
+    return [
+      { name: '高金利優先（雪崩式）', color: SERIES(0), r: simulate(budget, 'avalanche'),
+        desc: '金利の高い借入から集中して返す。支払う利息が最も少なくなる。' },
+      { name: '少額優先（雪だるま式）', color: SERIES(1), r: simulate(budget, 'snowball'),
+        desc: '残高の小さい借入から完済する。1件ずつ完済できるので手応えが続きやすい。' },
+      { name: '最低返済のみ', color: SERIES(2), r: simulate(0, 'minimum'),
+        desc: '毎月の最低返済額だけを払い続けた場合の基準線。' }
+    ];
+  }
+
+  function simCardsHTML(sts) {
+    return sts.map(s => {
+      const r = s.r, ok = r.payoffMonths != null;
+      return `<div class="panel"><div class="panel-body" style="padding:16px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">
+          <i class="swatch" style="background:${s.color};width:10px;height:10px"></i>
+          <h3 style="font-size:13.5px">${esc(s.name)}</h3>
+        </div>
+        <div style="font-family:var(--sans);font-weight:600;letter-spacing:-.01em;margin:6px 0 1px;${ok ? 'font-size:23px' : 'color:var(--crit-text);font-size:17px'}">
+          ${ok ? durationText(r.payoffMonths) : '完済しません'}
+        </div>
+        <div style="font-size:12.5px;color:var(--ink-2)">
+          ${ok ? fmtMonth(addMonths(new Date(), r.payoffMonths)) + ' に完済' : '残高が減らない、または50年を超えます'}
+        </div>
+        <div style="margin-top:11px;padding-top:11px;border-top:1px solid var(--border);font-size:12.5px;color:var(--ink-2)">
+          支払う利息の総額<br>
+          <b class="num" style="color:${ok ? 'var(--ink)' : 'var(--crit-text)'};font-size:15px">${ok ? yen(r.totalInterest) : '—'}</b>
+        </div>
+        <p style="font-size:12px;color:var(--ink-3);margin-top:10px;line-height:1.55">${esc(s.desc)}</p>
+      </div></div>`;
+    }).join('');
+  }
+
+  function simCalloutHTML(sts) {
+    const av = sts[0].r, mn = sts[2].r;
+    if (av.payoffMonths == null) {
+      return `<div class="callout crit">${ICON.crit}<div>この返済額では残高が減りません。最低返済額の合計を下回っていないか、金利が高すぎないかを確認してください。</div></div>`;
+    }
+    if (mn.payoffMonths == null) {
+      return `<div class="callout info">${ICON.info}<div>最低返済額のままでは完済できませんが、この返済額なら <b>${durationText(av.payoffMonths)}</b> で完済できます。支払う利息は <b>${yen(av.totalInterest)}</b> です。</div></div>`;
+    }
+    const saved = mn.totalInterest - av.totalInterest;
+    const faster = mn.payoffMonths - av.payoffMonths;
+    if (saved <= 0 && faster <= 0) {
+      return `<div class="callout info">${ICON.info}<div>上乗せ分がゼロのため、最低返済のみの場合と同じ結果になります。スライダーを動かすと効果が見えます。</div></div>`;
+    }
+    return `<div class="callout info">${ICON.info}<div>この返済額で高金利優先を続けると、最低返済のみの場合に比べて利息を <b>${yen(saved)}</b> 節約でき、完済が <b>${durationText(faster)}</b> 早まります。</div></div>`;
+  }
+
+  function simTableHTML(sts) {
+    const mn = sts[2].r;
+    return `<div class="table-wrap"><table class="ledger">
+      <thead><tr><th>戦略</th><th class="r">完済まで</th><th class="r">完済予定</th><th class="r">支払う利息</th><th class="r">最低返済のみとの差</th></tr></thead>
+      <tbody>${sts.map(s => {
+        const r = s.r, ok = r.payoffMonths != null;
+        const diff = ok && mn.payoffMonths != null ? mn.totalInterest - r.totalInterest : null;
+        return `<tr>
+          <td><span style="display:inline-flex;align-items:center;gap:7px"><i class="swatch" style="background:${s.color}"></i>${esc(s.name)}</span></td>
+          <td class="r">${ok ? durationText(r.payoffMonths) : '—'}</td>
+          <td class="r">${ok ? fmtMonth(addMonths(new Date(), r.payoffMonths)) : '—'}</td>
+          <td class="r">${ok ? yen(r.totalInterest) : '—'}</td>
+          <td class="r ${diff > 0 ? 'amt-pos' : ''}">${diff == null ? '—' : (diff > 0 ? '−' + yen0(diff) : '0')}</td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+  }
+
+  function simOrderHTML(av) {
+    return `<div class="table-wrap"><table class="ledger">
+      <thead><tr><th>順</th><th>借入先</th><th class="r">残高</th><th class="r">年利</th><th class="r">完済まで</th><th class="r">完済予定</th></tr></thead>
+      <tbody>${state.debts.filter(d => d.balance > 0.5)
+        .map(d => ({ d, off: av.perDebt[d.id] ? av.perDebt[d.id].paidOff : null }))
+        .sort((a, b) => (a.off == null ? 9999 : a.off) - (b.off == null ? 9999 : b.off))
+        .map((x, i) => `<tr>
+          <td class="r" style="text-align:left">${i + 1}</td>
+          <td>${esc(x.d.name)}</td>
+          <td class="r">${yen(x.d.balance)}</td>
+          <td class="r">${x.d.rate}%</td>
+          <td class="r">${x.off ? durationText(x.off) : '—'}</td>
+          <td class="r">${x.off ? fmtMonth(addMonths(new Date(), x.off)) : '—'}</td>
+        </tr>`).join('')}</tbody></table></div>`;
+  }
+
+  function drawSimChart(sts) {
+    const maxLen = Math.min(360, Math.max(...sts.map(s => s.r.months.length), 1));
+    mountChart(document.getElementById('ch-sim'), (c, w) => multiLine(c, w, {
+      height: 260, xLabel: '経過月数',
+      series: sts.map(s => ({
+        name: s.name, color: s.color, payoff: s.r.payoffMonths,
+        points: s.r.months.slice(0, maxLen).map(m => m.balance)
+      }))
+    }));
+  }
+
+  V.sim = function () {
+    const root = document.getElementById('view-sim');
+    const sumMin = totalMinPayment();
+
+    if (totalBalance() <= 0) {
+      root.innerHTML = headHTML('シミュレーション', '返済戦略ごとに、完済までの期間と支払う利息の総額を比較します。') +
+        `<div class="empty"><h3>比較する借入がありません</h3>
+          <p>残高のある借入を登録すると、「高金利優先」「少額優先」「最低返済のみ」の3つを比較できます。</p>
+          <button class="btn primary" data-act="add-debt">${ICON.plus}借入を登録する</button></div>`;
+      return;
+    }
+
+    if (simExtra == null) simExtra = Math.max(0, Math.round((plannedBudget() - sumMin) / 1000) * 1000);
+    const maxExtra = Math.max(50000, Math.ceil(sumMin / 1000) * 1000);
+    simExtra = clamp(simExtra, 0, maxExtra);
+
+    let sts = computeStrategies(sumMin + simExtra);
+
+    root.innerHTML =
+      headHTML('シミュレーション', '毎月いくら返すかで、完済時期と支払う利息の総額がどれだけ変わるかを比較します。スライダーで上乗せ額を動かしてみてください。') +
+
+      `<div class="panel">
+         <div class="panel-head"><h2>毎月の返済額</h2>
+           <span class="hint">最低返済額 ${yen(sumMin)} + 上乗せ分</span></div>
+         <div class="panel-body">
+           <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:12px">
+             <span id="budgetVal" class="num" style="font-size:30px;font-family:var(--sans);font-weight:600">${yen(sumMin + simExtra)}</span>
+             <span style="font-size:13px;color:var(--ink-2)">うち上乗せ <b class="num" id="extraVal">${yen(simExtra)}</b>／月</span>
+           </div>
+           <input type="range" id="extra" min="0" max="${maxExtra}" step="1000" value="${simExtra}"
+             aria-label="毎月の上乗せ返済額">
+           <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);margin-top:2px">
+             <span class="num">+0</span><span class="num">+${yen0(maxExtra)}</span>
+           </div>
+           <div id="simCallout" style="margin-top:14px">${simCalloutHTML(sts)}</div>
+         </div>
+       </div>
+
+       <div class="grid g-3" id="sim-cards" style="margin-top:16px">${simCardsHTML(sts)}</div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>残高の推移を比較</h2><span class="hint">月ごとの残高合計</span></div>
+         <div class="panel-body">
+           <div class="chart" id="ch-sim"></div>
+           ${legendHTML(sts.map(s => ({ name: s.name, color: s.color })))}
+           <details class="tableview"><summary>数値で見る</summary><div id="sim-table">${simTableHTML(sts)}</div></details>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>高金利優先で返した場合の完済順</h2>
+           <span class="hint">先に完済する借入から</span></div>
+         <div class="panel-body" id="sim-order">${simOrderHTML(sts[0].r)}</div>
+       </div>`;
+
+    drawSimChart(sts);
+
+    // スライダー操作中はテキストと集計だけを差し替え、入力要素自体は作り直さない
+    const slider = document.getElementById('extra');
+    const refresh = withChart => {
+      sts = computeStrategies(sumMin + simExtra);
+      document.getElementById('budgetVal').textContent = yen(sumMin + simExtra);
+      document.getElementById('extraVal').textContent = yen(simExtra);
+      document.getElementById('simCallout').innerHTML = simCalloutHTML(sts);
+      document.getElementById('sim-cards').innerHTML = simCardsHTML(sts);
+      document.getElementById('sim-table').innerHTML = simTableHTML(sts);
+      document.getElementById('sim-order').innerHTML = simOrderHTML(sts[0].r);
+      if (withChart) drawSimChart(sts);
+    };
+    slider.addEventListener('input', () => { simExtra = +slider.value; refresh(false); });
+    slider.addEventListener('change', () => { simExtra = +slider.value; refresh(true); });
+  };
+
+  /* ---------- データ ---------- */
+  const bytes = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+                   : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+
+  V.data = function () {
+    const root = document.getElementById('view-data');
+    const n = state.debts.length + state.txns.length + state.repayments.length;
+
+    root.innerHTML =
+      headHTML('データ', 'このアプリの記録は、お使いのパソコン上の <b>SQLite データベースファイル</b>に保存されます。外部には一切送信されません。サーバーは 127.0.0.1 でのみ待ち受けているので、同じネットワークの他の端末からも接続できません。') +
+
+      `<div class="grid g-2">
+         <div class="panel">
+           <div class="panel-head"><h2>保存先</h2>
+             ${online ? '<span class="pill ok">接続中</span>' : '<span class="pill crit">未接続</span>'}</div>
+           <div class="panel-body">
+             <div class="table-wrap"><table class="ledger">
+               <tbody>
+                 <tr><td>借入</td><td class="r">${state.debts.length} 件</td></tr>
+                 <tr><td>収入・支出</td><td class="r">${state.txns.length} 件</td></tr>
+                 <tr><td>返済の記録</td><td class="r">${state.repayments.length} 件</td></tr>
+                 <tr><td>データの大きさ</td><td class="r">${dbStats ? bytes(dbStats.size) : '—'}</td></tr>
+               </tbody></table></div>
+             ${dbStats ? `<div class="field" style="margin-top:13px">
+               <label>保存先</label>
+               <div class="num" style="font-size:11.5px;word-break:break-all;color:var(--ink-2)">${esc(dbStats.path)}</div>
+             </div>` : ''}
+             <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">
+               <button class="btn" data-act="sample">サンプルデータを読み込む</button>
+               <button class="btn danger" data-act="wipe" ${n ? '' : 'disabled'}>すべて削除</button>
+             </div>
+           </div>
+         </div>
+
+         <div class="panel">
+           <div class="panel-head"><h2>バックアップ</h2></div>
+           <div class="panel-body">
+             <p style="font-size:13px;color:var(--ink-2);margin-bottom:11px">
+               <b>スプレッドシートの複製</b>を、あなたのドライブに日付つきで作ります。元のシートはそのまま残ります。</p>
+             <button class="btn primary" data-act="backup">スプレッドシートを複製する</button>
+             ${dbStats ? `<div class="note" style="font-size:11.5px;color:var(--ink-3);margin-top:6px;word-break:break-all">保存先： ${esc(dbStats.backupDir)}</div>` : ''}
+
+             <p style="font-size:13px;color:var(--ink-2);margin:18px 0 11px;padding-top:16px;border-top:1px solid var(--border)">
+               <b>JSON で書き出す</b>と、他のツールでも読める形になります。</p>
+             <div style="display:flex;gap:9px;flex-wrap:wrap">
+               <button class="btn" data-act="export">JSON に書き出す</button>
+               <button class="btn" data-act="copy">クリップボードにコピー</button>
+             </div>
+             <div class="field" style="margin-top:16px">
+               <label for="impFile">JSON バックアップを読み込む</label>
+               <input type="file" id="impFile" accept="application/json,.json">
+               <span class="note">読み込むと、現在のデータはすべて置き換わります。</span>
+             </div>
+           </div>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>計算の前提</h2></div>
+         <div class="panel-body">
+           <ul style="margin:0;padding-left:20px;font-size:13px;color:var(--ink-2);line-height:1.85">
+             <li>利息は<b>日割り</b>で計算します。<b>元金 × 年利 ÷ 365日 × 経過日数</b>。うるう年も 365 日として扱います。</li>
+             <li>利息が付くのは<b>元金だけ</b>です。払いきれずに残った未払利息が、それ自身でさらに利息を生むことはありません。</li>
+             <li>返済を記録すると、起算日から返済日までの利息を積んだうえで、返済額を<b>まず利息に、残りを元金に</b>充当します。この計算と残高の更新は<b>一つのトランザクション</b>で行うため、片方だけが反映されることはありません。</li>
+             <li>実際の約定日・遅延損害金・借入先ごとの端数処理は考慮していません。</li>
+             <li>シミュレーションは、毎月の返済額が一定で、新たな借入がないことを前提としています。</li>
+             <li>50年（600ヶ月）以内に完済しない場合、または残高が減らない場合は「完済しません」と表示します。</li>
+             <li>実際の契約条件は借入先の返済予定表が優先されます。ここでの数字は計画を立てるための目安として使ってください。</li>
+           </ul>
+         </div>
+       </div>`;
+
+    const f = document.getElementById('impFile');
+    f.addEventListener('change', () => {
+      const file = f.files && f.files[0];
+      if (!file) return;
+      const rd = new FileReader();
+      rd.onload = async () => {
+        let p = null;
+        try {
+          p = JSON.parse(rd.result);
+          if (!p || !Array.isArray(p.debts)) throw new Error();
+        } catch (e) {
+          toast('読み込めませんでした。JSON ファイルを確認してください。');
+          f.value = '';
+          return;
+        }
+        simExtra = null;
+        await commit('/import', 'POST', p, 'バックアップを読み込みました');
+        const f2 = document.getElementById('impFile');
+        if (f2) f2.value = '';
+      };
+      rd.readAsText(file);
+    });
+  };
+
+  /* ==========================================================
+     7. ダイアログ（フォーム）
+     ========================================================== */
+  const dlg = document.getElementById('dlg');
+  const dlgForm = document.getElementById('dlgForm');
+  let onSubmit = null;
+
+  function openDialog({ title, lede, body, ok, onOk, onOpen }) {
+    document.getElementById('dlgTitle').textContent = title;
+    document.getElementById('dlgLede').textContent = lede || '';
+    document.getElementById('dlgBody').innerHTML = body;
+    document.getElementById('dlgOk').textContent = ok || '保存';
+    onSubmit = onOk;
+    dlg.showModal();
+    if (onOpen) onOpen();
+    const first = dlg.querySelector('input,select,textarea');
+    if (first) first.focus();
+  }
+
+  document.getElementById('dlgCancel').addEventListener('click', () => dlg.close('cancel'));
+
+  dlgForm.addEventListener('submit', ev => {
+    const v = ev.submitter ? ev.submitter.value : 'ok';
+    if (v !== 'ok') return;
+    if (onSubmit) {
+      const res = onSubmit(new FormData(dlgForm));
+      if (res === false) { ev.preventDefault(); return; }
+    }
+  });
+  dlg.addEventListener('close', () => { onSubmit = null; });
+
+  const numOf = (fd, k) => {
+    const v = parseFloat(String(fd.get(k) || '').replace(/[^\d.\-]/g, ''));
+    return isFinite(v) ? v : 0;
+  };
+
+  function debtForm(d) {
+    return `<div class="form-grid">
+      <div class="field full"><label for="f-name">借入先の名前</label>
+        <input type="text" id="f-name" name="name" required maxlength="40" placeholder="例：〇〇カードローン" value="${d ? esc(d.name) : ''}"></div>
+      <div class="field"><label for="f-prin">元金（円）</label>
+        <input type="number" id="f-prin" name="principal" required min="0" step="1" value="${d ? Math.round(d.principal) : ''}">
+        <span class="note">利息が付く対象。返済予定表の「残元金」</span></div>
+      <div class="field"><label for="f-int">未払いの利息（円）</label>
+        <input type="number" id="f-int" name="interestAccrued" min="0" step="1" value="${d ? Math.round(d.interestToday) : 0}">
+        <span class="note">まだ払っていない利息。無ければ 0</span></div>
+      <div class="field"><label for="f-acc">利息計算の起算日</label>
+        <input type="date" id="f-acc" name="accruedAt" required value="${todayISO()}">
+        <span class="note">この日の翌日から日割りで利息が付きます</span></div>
+      <div class="field"><label for="f-rate">年利（%）</label>
+        <input type="number" id="f-rate" name="rate" required min="0" max="100" step="0.01" value="${d ? d.rate : ''}"></div>
+      <div class="field"><label for="f-init">当初の借入額（円）</label>
+        <input type="number" id="f-init" name="initial" min="0" step="1" value="${d ? Math.round(d.initial || d.balance) : ''}">
+        <span class="note">進捗率の計算に使います</span></div>
+      <div class="field"><label for="f-min">毎月の最低返済額（円）</label>
+        <input type="number" id="f-min" name="minPayment" required min="0" step="1" value="${d ? Math.round(d.minPayment) : ''}"></div>
+      <div class="full"><div class="calc-note" id="f-calc"></div></div>
+    </div>`;
+  }
+
+  /** 元金・未払利息・年利の入力から、合計残高とこれから付く利息を出しておく。 */
+  function debtFormPreview() {
+    const get = id => Math.max(0, +document.getElementById(id).value || 0);
+    const calc = document.getElementById('f-calc');
+    const upd = () => {
+      const prin = get('f-prin'), int = get('f-int'), rate = get('f-rate');
+      const day = interestFor(prin, rate, 1);
+      const mon = monthlyInterest({ principal: prin, rate });
+      calc.innerHTML =
+        `<div>合計残高 <b>${yen(prin + int)}</b>（元金 ${yen(prin)} ＋ 未払利息 ${yen(int)}）</div>
+         <div>これから付く利息 <b>${yen(day)}</b>／日・<b>${yen(mon)}</b>／月</div>
+         <div style="color:var(--ink-3);margin-top:4px">元金 ${yen0(prin)} × ${rate}% ÷ ${DAY_BASIS}日 × 経過日数</div>`;
+    };
+    ['f-prin', 'f-int', 'f-rate'].forEach(id =>
+      document.getElementById(id).addEventListener('input', upd));
+    upd();
+  }
+
+  const debtPayload = fd => ({
+    name: String(fd.get('name') || '').trim(),
+    principal: numOf(fd, 'principal'),
+    interestAccrued: numOf(fd, 'interestAccrued'),
+    accruedAt: String(fd.get('accruedAt') || todayISO()),
+    initial: numOf(fd, 'initial'),
+    rate: numOf(fd, 'rate'),
+    minPayment: numOf(fd, 'minPayment')
+  });
+
+  function addDebt() {
+    openDialog({
+      title: '借入を追加',
+      lede: '返済予定表や利用明細に書かれている数字を入力してください。以降の利息は日割りで自動計算されます。',
+      body: debtForm(null),
+      onOpen: debtFormPreview,
+      onOk: fd => {
+        const p = debtPayload(fd);
+        if (!p.name) return false;
+        simExtra = null;
+        commit('/debts', 'POST', p, '借入を登録しました');
+      }
+    });
+  }
+
+  function editDebt(id) {
+    const d = state.debts.find(x => x.id === id);
+    if (!d) return;
+    openDialog({
+      title: '借入を編集',
+      lede: d.name + '　未払利息と起算日は今日時点にそろえてあります' +
+            (d.pendingDays ? `（前回の起算日 ${d.accruedAt} から ${d.pendingDays}日分を反映）` : ''),
+      body: debtForm(d),
+      onOpen: debtFormPreview,
+      onOk: fd => {
+        const p = debtPayload(fd);
+        if (!p.name) return false;
+        simExtra = null;
+        commit('/debts/' + d.id, 'PUT', p, '借入を更新しました');
+      }
+    });
+  }
+
+  function payDialog(id) {
+    const d = state.debts.find(x => x.id === id);
+    if (!d) return;
+    openDialog({
+      title: '返済を記録',
+      lede: `${d.name}（元金 ${yen(d.principal)} ＋ 未払利息 ${yen(d.interestToday)} ＝ ${yen(d.balance)}）`,
+      ok: '記録する',
+      body: `<div class="form-grid">
+        <div class="field"><label for="p-date">返済日</label>
+          <input type="date" id="p-date" name="date" required value="${todayISO()}"></div>
+        <div class="field"><label for="p-amt">返済額（円）</label>
+          <input type="number" id="p-amt" name="amount" required min="1" step="1" value="${Math.round(d.minPayment)}"></div>
+        <div class="field full"><label for="p-memo">メモ</label>
+          <input type="text" id="p-memo" name="memo" maxlength="60" placeholder="任意"></div>
+        <div class="full"><div class="calc-note" id="p-calc"></div></div>
+      </div>`,
+      onOpen: () => {
+        const amtEl = document.getElementById('p-amt');
+        const dateEl = document.getElementById('p-date');
+        const calc = document.getElementById('p-calc');
+        const upd = () => {
+          // サーバーと同じ順序で試算する：日割りで利息を積む → 利息へ充当 → 残りを元金へ。
+          const days = daysApart(new Date(d.accruedAt + 'T00:00:00'),
+                                 new Date((dateEl.value || todayISO()) + 'T00:00:00'));
+          const int = d.interestAccrued + interestFor(d.principal, d.rate, days);
+          const a = Math.max(0, +amtEl.value || 0);
+          const toInterest = Math.min(a, int);
+          const toPrincipal = Math.min(a - toInterest, d.principal);
+          const over = a - toInterest - toPrincipal;
+          calc.innerHTML =
+            `<div>${esc(d.accruedAt)} から <b>${days}日</b>分の利息 <b>${yen(interestFor(d.principal, d.rate, days))}</b>
+                  <span style="color:var(--ink-3)">（元金 ${yen0(d.principal)} × ${d.rate}% ÷ ${DAY_BASIS}日 × ${days}日）</span></div>
+             <div>未払利息の合計 <b>${yen(int)}</b></div>
+             <div style="margin-top:4px">うち利息への充当 <b>${yen(toInterest)}</b></div>
+             <div>うち元金への充当 <b>${yen(toPrincipal)}</b></div>
+             <div>返済後の残高 <b>${yen(d.principal - toPrincipal + int - toInterest)}</b></div>
+             ${a > 0 && a <= int
+               ? `<div style="color:var(--crit-text);margin-top:4px">返済額が利息以下のため、元金は1円も減りません。</div>` : ''}
+             ${over > 0.5
+               ? `<div style="color:var(--ink-3);margin-top:4px">完済に必要なのは ${yen(int + d.principal)} です。超過分 ${yen(over)} は充当されません。</div>` : ''}`;
+        };
+        amtEl.addEventListener('input', upd);
+        dateEl.addEventListener('change', upd);
+        upd();
+      },
+      onOk: fd => {
+        const amount = numOf(fd, 'amount');
+        if (amount <= 0) return false;
+        // 利息と元金の内訳はサーバー側で返済日までの日割り利息から計算し、
+        // 残高の更新と同じトランザクションに入れる。
+        commit('/repayments', 'POST', {
+          debtId: d.id,
+          date: String(fd.get('date') || todayISO()),
+          amount,
+          memo: String(fd.get('memo') || '').trim()
+        }, '返済を記録しました');
+      }
+    });
+  }
+
+  function txnDialog(type) {
+    const cats = type === 'income' ? INCOME_CATS : EXPENSE_CATS;
+    const label = type === 'income' ? '収入' : '支出';
+    openDialog({
+      title: label + 'を追加',
+      lede: type === 'income' ? '手取り額（実際に受け取った金額）を入力してください。' : '借入の返済は「借入・返済」画面で記録します。',
+      ok: '追加',
+      body: `<div class="form-grid">
+        <div class="field"><label for="t-date">日付</label>
+          <input type="date" id="t-date" name="date" required value="${todayISO()}"></div>
+        <div class="field"><label for="t-amt">金額（円）</label>
+          <input type="number" id="t-amt" name="amount" required min="1" step="1" placeholder="0"></div>
+        <div class="field"><label for="t-cat">カテゴリ</label>
+          <select id="t-cat" name="category">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
+        <div class="field"><label for="t-memo">メモ</label>
+          <input type="text" id="t-memo" name="memo" maxlength="60" placeholder="任意"></div>
+      </div>`,
+      onOk: fd => {
+        const amount = numOf(fd, 'amount');
+        if (amount <= 0) return false;
+        const date = String(fd.get('date') || todayISO());
+        cashMonth = monthKey(date);
+        commit('/txns', 'POST', {
+          type, date, amount,
+          category: String(fd.get('category') || 'その他'),
+          memo: String(fd.get('memo') || '').trim()
+        }, label + 'を追加しました');
+      }
+    });
+  }
+
+  function goalsDialog() {
+    const g = state.goals;
+    openDialog({
+      title: '目標を編集', lede: '未入力の項目は「未設定」として扱われます。',
+      body: `<div class="form-grid">
+        <div class="field"><label for="g-date">完済の目標日</label>
+          <input type="date" id="g-date" name="targetDate" value="${esc(g.targetDate || '')}"></div>
+        <div class="field"><label for="g-rep">月々の返済目標（円）</label>
+          <input type="number" id="g-rep" name="monthlyRepay" min="0" step="1000" value="${g.monthlyRepay || ''}">
+          <span class="note">最低返済額の合計は ${yen(totalMinPayment())}</span></div>
+        <div class="field"><label for="g-ef">生活防衛資金の目標（円）</label>
+          <input type="number" id="g-ef" name="emergency" min="0" step="10000" value="${g.emergency || ''}"></div>
+        <div class="field"><label for="g-efc">生活防衛資金の現在額（円）</label>
+          <input type="number" id="g-efc" name="emergencyCurrent" min="0" step="1000" value="${g.emergencyCurrent || ''}"></div>
+      </div>`,
+      onOk: fd => {
+        simExtra = null;
+        commit('/goals', 'PUT', {
+          targetDate: String(fd.get('targetDate') || ''),
+          monthlyRepay: numOf(fd, 'monthlyRepay'),
+          emergency: numOf(fd, 'emergency'),
+          emergencyCurrent: numOf(fd, 'emergencyCurrent')
+        }, '目標を更新しました');
+      }
+    });
+  }
+
+  function confirmDialog(title, lede, onYes, okLabel) {
+    openDialog({
+      title, lede, ok: okLabel || '削除する',
+      body: '<p style="font-size:13px;color:var(--ink-2)">この操作は元に戻せません。</p>',
+      onOk: () => { onYes(); }
+    });
+    const ok = document.getElementById('dlgOk');
+    ok.classList.remove('primary'); ok.classList.add('danger');
+    dlg.addEventListener('close', function restore() {
+      ok.classList.add('primary'); ok.classList.remove('danger');
+      dlg.removeEventListener('close', restore);
+    });
+  }
+
+  /* ==========================================================
+     8. データの書き出し・サンプル
+     ========================================================== */
+  function exportData() {
+    // サーバーが Content-Disposition を付けて返すので、ブラウザがそのまま保存する
+    location.href = '/api/export';
+  }
+
+  /** Drive の files.copy でスプレッドシートごと複製する */
+  async function makeBackup() {
+    try {
+      const r = await api('/backup', 'POST');
+      try { dbStats = await api('/stats'); } catch (e) {}
+      render();
+      toast('バックアップを作成しました（' + Math.max(1, Math.round(r.size / 1024)) + ' KB）');
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  async function copyData() {
+    const json = JSON.stringify(state, null, 2);
+    try {
+      await navigator.clipboard.writeText(json);
+      toast('クリップボードにコピーしました');
+    } catch (e) {
+      openDialog({
+        title: 'バックアップ', lede: '下のテキストをすべて選択してコピーし、ファイルとして保存してください。',
+        ok: '閉じる',
+        body: `<textarea readonly style="min-height:200px" id="bkText">${esc(json)}</textarea>`,
+        onOpen: () => { const t = document.getElementById('bkText'); t.focus(); t.select(); },
+        onOk: () => {}
+      });
+    }
+  }
+
+  /* ==========================================================
+     9. イベント配線と初期化
+     ========================================================== */
+  document.addEventListener('click', ev => {
+    const nav = ev.target.closest('.nav-item');
+    if (nav) {
+      currentView = nav.dataset.view;
+      document.querySelectorAll('.nav-item').forEach(b =>
+        b.setAttribute('aria-current', b === nav ? 'page' : 'false'));
+      document.querySelectorAll('.view').forEach(v =>
+        v.classList.toggle('is-active', v.dataset.view === currentView));
+      render();
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      return;
+    }
+
+    const btn = ev.target.closest('[data-act]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+
+    switch (btn.dataset.act) {
+      case 'add-debt':   addDebt(); break;
+      case 'edit-debt':  editDebt(id); break;
+      case 'pay':        payDialog(id); break;
+      case 'add-income': txnDialog('income'); break;
+      case 'add-expense':txnDialog('expense'); break;
+      case 'edit-goals': goalsDialog(); break;
+      case 'export':     exportData(); break;
+      case 'copy':       copyData(); break;
+      case 'backup':     makeBackup(); break;
+      case 'sample':
+        simExtra = null; cashMonth = thisMonth();
+        commit('/sample', 'POST', undefined, 'サンプルデータを読み込みました');
+        break;
+
+      case 'del-debt': {
+        const d = state.debts.find(x => x.id === id);
+        if (!d) break;
+        confirmDialog('借入を削除', `「${d.name}」と、この借入に紐づく返済の記録をすべて削除します。`, () => {
+          simExtra = null;
+          commit('/debts/' + id, 'DELETE', undefined, '借入を削除しました');
+        });
+        break;
+      }
+      case 'del-rep': {
+        const r = state.repayments.find(x => x.id === id);
+        if (!r) break;
+        confirmDialog('返済の記録を取り消す',
+          `${r.date} の ${yen(r.amount)} を取り消し、元金充当分 ${yen(r.principal)} を残高に戻します。`,
+          () => commit('/repayments/' + id, 'DELETE', undefined, '返済の記録を取り消しました'),
+          '取り消す');
+        break;
+      }
+      case 'del-txn':
+        commit('/txns/' + id, 'DELETE', undefined, '削除しました');
+        break;
+
+      case 'wipe':
+        confirmDialog('すべて削除', '借入・収支・返済の記録と目標を、すべて消去します。', () => {
+          simExtra = null; cashMonth = thisMonth();
+          commit('/wipe', 'POST', undefined, 'すべて削除しました');
+        });
+        break;
+    }
+  });
+
+  boot();
+})();
+</script>
+</body>
+</html>

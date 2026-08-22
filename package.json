@@ -1,0 +1,26 @@
+{
+  "name": "saimu-roadmap",
+  "version": "1.0.0",
+  "description": "借金返済の管理ツール。収入・支出・返済記録から完済予定日を逆算し、返済戦略ごとの利息と期間を比較する。データは SQLite に保存。",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "backup": "node tools/backup.js",
+    "schema": "node tools/schema.js",
+    "lint": "node tools/lint.js",
+    "build:web": "node tools/build-web.js",
+    "test:ui": "node tools/uitest.js",
+    "test:auth": "node tools/authtest.js",
+    "test:web": "node tools/build-web.js && node tools/webtest.js",
+    "test": "node tools/lint.js && node tools/test.js && node tools/uitest.js && node tools/authtest.js && node tools/build-web.js && node tools/webtest.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": ["debt", "budget", "sqlite", "家計簿", "返済管理"],
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,13 @@
+# 実データ — コミットしない
+saimu.db
+saimu.db-wal
+saimu.db-shm
+*.db
+backups/
+
+# LAN 公開用のアクセスキー — コミットしない
+saimu.key
+
+node_modules/
+npm-debug.log*
+.DS_Store
