@@ -100,7 +100,8 @@ npm run build:web     → docs/index.html
    - **テストユーザー**に自分のメールアドレスを追加する
 4. **認証情報 → 認証情報を作成 → OAuth クライアント ID**
    - 種類：**ウェブ アプリケーション**
-   - **承認済みの JavaScript 生成元** に `https://<あなた>.github.io` を追加
+   - **承認済みの JavaScript 生成元** に `https://rbaasemo9a-cell.github.io` を追加
+     （末尾にスラッシュやパスを付けないこと。生成元はホスト名までです）
    - リダイレクト URI は不要です（トークン方式のため）
 5. 表示された**クライアント ID** を控える
 
@@ -113,14 +114,24 @@ npm run build:web     → docs/index.html
 
 #### 2. GitHub Pages に置く
 
+リポジトリの初期化と初回コミットは済んでいます（リモートも設定済み）。
+GitHub 側に `saimu` リポジトリを作ってから、**新しいターミナルで**:
+
 ```
-git init && git add -A && git commit -m "初回"
-git remote add origin https://github.com/<あなた>/saimu.git
 git push -u origin main
 ```
 
-リポジトリの **Settings → Pages** で、ソースを `main` ブランチの **`/docs`** フォルダにします。
-数分後に `https://<あなた>.github.io/saimu/` が開きます。
+初回はブラウザが開いて GitHub のログインを求められます（Git Credential Manager）。
+
+> **無料プランでは、Pages を公開できるのは public リポジトリだけです。**
+> private リポジトリからの公開には GitHub Pro が要ります。
+> public にしてもデータは入りません（`saimu.db` も `saimu.key` も `.gitignore` 済み）。
+> クライアント ID もコードに埋め込まず、各端末の localStorage に置きます。
+
+push できたら **Settings → Pages** で、ソースを `main` ブランチの **`/docs`** フォルダに。
+数分後に `https://rbaasemo9a-cell.github.io/saimu/` が開きます。
+
+以後、画面を直したら `npm run build:web` してから commit / push します。
 
 初回だけクライアント ID の入力を求められます。貼り付けると**この端末の localStorage にだけ**保存され、
 どこにも送信されません。次に「Google でログイン」を押すと、あなたのドライブに
