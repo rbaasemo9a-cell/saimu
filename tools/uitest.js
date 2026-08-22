@@ -101,7 +101,8 @@ const HARNESS = `
     const closed = await waitFor(async () => !dlg.open);
     const saved = await waitFor(async () => (await txnCount()) === n0 + 1);
     ok('保存でダイアログが閉じる', closed);
-    ok('保存した金額が DB に入る', saved, '件数 ' + n0 + ' → ' + (await txnCount()));
+    ok('保存した金額が DB に入る', saved,
+      '件数 ' + n0 + ' → ' + (await txnCount()) + '  toast=' + (($('#toast') || {}).textContent || '(なし)'));
     ok('保存後の画面に金額が出る',
       await waitFor(async () => document.body.innerText.includes('1,234')));
 
@@ -146,7 +147,7 @@ setTimeout(() => {
   const r = spawnSync(EDGE, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
     '--user-data-dir=' + PROFILE,
-    '--virtual-time-budget=30000', '--dump-dom',
+    '--virtual-time-budget=90000', '--dump-dom',   // 仮想時間は一気に進むので、通信の完了を待てるだけの余裕を取る
     `http://127.0.0.1:${PORT}/__uitest.html`
   ], { encoding: 'utf8', maxBuffer: 40 * 1024 * 1024 });
 

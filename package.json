@@ -14,13 +14,20 @@
     "test:ui": "node tools/uitest.js",
     "test:auth": "node tools/authtest.js",
     "test:web": "node tools/build-web.js && node tools/webtest.js",
-    "test": "node tools/lint.js && node tools/test.js && node tools/uitest.js && node tools/authtest.js && node tools/build-web.js && node tools/webtest.js"
+    "test": "node tools/lint.js && node tools/test.js && node tools/uitest.js && node tools/authtest.js && node tools/mobiletest.js && node tools/build-web.js && node tools/webtest.js",
+    "test:mobile": "node tools/mobiletest.js"
   },
   "engines": {
     "node": ">=22.5.0"
   },
   "dependencies": {},
   "devDependencies": {},
-  "keywords": ["debt", "budget", "sqlite", "家計簿", "返済管理"],
+  "keywords": [
+    "debt",
+    "budget",
+    "sqlite",
+    "家計簿",
+    "返済管理"
+  ],
   "license": "UNLICENSED"
 }
