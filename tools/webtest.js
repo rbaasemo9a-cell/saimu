@@ -59,6 +59,15 @@ ok('サーバーへの fetch が残っていない', !html.includes("fetch('/api
 ok('差し替えの目印が残っていない', !html.includes('@swap:'));
 ok('Jekyll 抑止ファイルがある', fs.existsSync(path.join(ROOT, 'docs', '.nojekyll')));
 
+// 再読み込みのたびにログインが出ないこと（鍵を端末に覚えておく作り）
+ok('アクセストークンを端末に覚える', app.includes("token:    'saimu.token'") &&
+  /function rememberToken/.test(app) && /function recallToken/.test(app));
+ok('期限内の鍵があれば Google に問い合わせない', /if \(hasLiveToken\(\)\)/.test(app));
+ok('期限ぎりぎりの鍵は使わない', /Date\.now\(\) \+ 120000/.test(app));
+ok('同意画面を毎回は強制しない', !app.includes("prompt: 'consent'"));
+ok('ログアウトで覚えた鍵を消す', /function signOut[\s\S]{0,200}forgetToken\(\)/.test(app));
+ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,120}forgetToken\(\)/.test(app));
+
 /* ==========================================================
    2. データ層のロジック
    ========================================================== */

@@ -132,6 +132,39 @@ db.addTxn({ type: 'income', date: '2026-08-25', amount: 320000, category: '給�
 db.addTxn({ type: 'expense', date: '2026-08-03', amount: 82000, category: '住居' });
 ok('収支を登録できる', db.getState().txns.length === 2);
 
+// カード払い — 引落月を翌月に回せる
+{
+  const before = db.getState().txns.length;
+  db.addTxn({ type: 'expense', date: '2026-08-15', amount: 12000, category: '娯楽',
+              payMonth: '2026-09' });
+  db.addTxn({ type: 'expense', date: '2026-08-16', amount: 3000, category: '食費' });
+  const t = db.getState().txns;
+  const card = t.find(x => x.category === '娯楽');
+  const cash = t.find(x => x.category === '食費' && x.date === '2026-08-16');
+  ok('カード払いは引落月を翌月にできる', card.payMonth === '2026-09', card.payMonth);
+  ok('指定が無ければ引落月は利用月', cash.payMonth === '2026-08', cash.payMonth);
+  ok('収支の件数が増えている', db.getState().txns.length === before + 2);
+
+  // 収入は受け取った月がそのまま現金の動き。翌月には回せない。
+  db.addTxn({ type: 'income', date: '2026-08-20', amount: 1000, category: '副業',
+              payMonth: '2026-12' });
+  const inc = db.getState().txns.find(x => x.category === '副業');
+  ok('収入の引落月は受取月に固定される', inc.payMonth === '2026-08', inc.payMonth);
+
+  db.getState().txns.filter(x => ['娯楽', '副業'].includes(x.category) ||
+    (x.category === '食費' && x.date === '2026-08-16')).forEach(x => db.deleteTxn(x.id));
+}
+
+// 月キーの加算 — 年をまたいでも壊れない
+{
+  const cases = [['2026-08', 1, '2026-09'], ['2026-12', 1, '2027-01'],
+                 ['2026-01', -1, '2025-12'], ['2026-11', 3, '2027-02'],
+                 ['2026-12', 12, '2027-12'], ['壊れた値', 1, '壊れた値']];
+  ok('月キーの加算が年をまたいでも正しい',
+    cases.every(([k, n, want]) => db.addMonthKey(k, n) === want),
+    cases.map(([k, n, want]) => `${k}+${n}=${db.addMonthKey(k, n)}(期待${want})`).join(' '));
+}
+
 // 目標
 db.setGoals({ targetDate: '2029-03-31', monthlyRepay: 95000, emergency: 600000, emergencyCurrent: 180000 });
 ok('目標を保存できる', db.getState().goals.monthlyRepay === 95000);
@@ -180,6 +213,23 @@ ok('不正な日付は空に、負の金額は0に丸められる',
   const paidMonths = now.getDate() >= 27 ? 6 : 5;
   ok('サンプルを読み込める', s.debts.length === 3 && s.repayments.length === paidMonths * 3,
     `debts=${s.debts.length} reps=${s.repayments.length} (期待 ${paidMonths * 3})`);
+  {
+    const useM = {}, payM = {};
+    s.txns.filter(t => t.type === 'expense').forEach(t => {
+      useM[t.date.slice(0, 7)] = (useM[t.date.slice(0, 7)] || 0) + t.amount;
+      payM[t.payMonth] = (payM[t.payMonth] || 0) + t.amount;
+    });
+    const months = Object.keys(useM).sort();
+    const last = months[months.length - 1];
+    ok('サンプルにカード払い（引落が翌月）が含まれる',
+      s.txns.some(t => t.type === 'expense' && t.payMonth !== t.date.slice(0, 7)));
+    ok('カード分が翌月へ繰り越されている',
+      (payM[db.addMonthKey(last, 1)] || 0) > 0,
+      '翌月の引落 ' + Math.round(payM[db.addMonthKey(last, 1)] || 0));
+    ok('発生ベースと引落ベースの総額は一致する',
+      Math.abs(Object.values(useM).reduce((a, b) => a + b, 0) -
+               Object.values(payM).reduce((a, b) => a + b, 0)) < 0.01);
+  }
   ok('サンプルに未来日付の返済が入らない', s.repayments.every(r => r.date <= todayISO),
     s.repayments.map(r => r.date).filter(d => d > todayISO).join(' '));
   ok('サンプルの返済はすべて 返済額 = 利息 + 元金 に分かれている',

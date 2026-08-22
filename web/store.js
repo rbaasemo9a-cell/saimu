@@ -17,7 +17,8 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 
 const LS = {
   clientId: 'saimu.clientId',
-  fileId:   'saimu.fileId'
+  fileId:   'saimu.fileId',
+  token:    'saimu.token'
 };
 
 /* ---------- 表の形 ---------- */
@@ -25,7 +26,7 @@ const LS = {
 const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
           'initial', 'rate', 'minPayment', 'createdAt'],
-  txns: ['id', 'type', 'date', 'amount', 'category', 'memo'],
+  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
@@ -38,6 +39,7 @@ const NUMERIC = new Set(['principal', 'interestAccrued', 'initial', 'rate', 'min
 
 const DAY_BASIS_DB = 365;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_MONTH = /^\d{4}-\d{2}$/;
 
 function daysBetweenISO(fromISO, toISO) {
   if (!ISO_DATE.test(fromISO || '') || !ISO_DATE.test(toISO || '')) return 0;
@@ -63,6 +65,20 @@ const nowISO = () => {
 };
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+/** YYYY-MM に n ヶ月足す。年またぎもここで面倒を見る。 */
+function addMonthKey(key, n) {
+  if (!ISO_MONTH.test(key || '')) return key;
+  const [y, m] = key.split('-').map(Number);
+  const t = (y * 12) + (m - 1) + n;
+  return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+}
+const monthOf = iso => String(iso || '').slice(0, 7);
+/** 引落月。指定が無ければ利用月そのまま（＝現金・口座払い）。 */
+function payMonthFor(b, date) {
+  const given = strOf(b.payMonth, 7);
+  return ISO_MONTH.test(given) ? given : monthOf(date);
+}
+
 class Refused extends Error {}
 
 function debtFields(b) {
@@ -86,6 +102,39 @@ let tokenClient = null;
 let accessToken = null;
 let tokenExpires = 0;
 let profile = null;
+
+/**
+ * アクセストークンは1時間で切れる短命な鍵。これを端末に覚えておかないと、
+ * 画面を再読み込みするたびに Google のログインをやり直す羽目になる。
+ * 保存先はこの端末のこのサイト専用の領域で、他のサイトからは読めない。
+ */
+function rememberToken() {
+  try {
+    localStorage.setItem(LS.token, JSON.stringify({ t: accessToken, e: tokenExpires }));
+  } catch (e) { /* 保存できなくても動作は続けられる */ }
+}
+function forgetToken() {
+  accessToken = null; tokenExpires = 0;
+  try { localStorage.removeItem(LS.token); } catch (e) {}
+}
+function recallToken() {
+  try {
+    const raw = localStorage.getItem(LS.token);
+    if (!raw) return false;
+    const v = JSON.parse(raw);
+    // 期限ぎりぎりのものは使わない。操作の途中で切れる方が困る。
+    if (v && v.t && v.e > Date.now() + 120000) {
+      accessToken = v.t; tokenExpires = v.e;
+      return true;
+    }
+  } catch (e) { /* 壊れていたら捨てる */ }
+  forgetToken();
+  return false;
+}
+recallToken();
+
+/** 覚えている鍵だけで進めるか。true ならログイン画面を出さずに済む。 */
+const hasLiveToken = () => !!accessToken && Date.now() < tokenExpires - 120000;
 
 const setClientId = id => {
   clientId = String(id || '').trim();
@@ -118,12 +167,14 @@ async function getToken(interactive) {
         if (r.error) return reject(new Refused(r.error_description || r.error));
         accessToken = r.access_token;
         tokenExpires = Date.now() + (Number(r.expires_in || 3600) * 1000);
+        rememberToken();
         resolve(accessToken);
       },
       error_callback: e => reject(new Refused((e && e.message) || 'ログインを中断しました'))
     });
-    // 初回は同意画面を出す。2回目以降は黙って取り直す。
-    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+    // prompt を空にすると、同意済みなら黙って発行され、必要なときだけ画面が出る。
+    // 'consent' を指定すると毎回同意画面が出てしまうので使わない。
+    tokenClient.requestAccessToken({ prompt: '' });
   });
 }
 
@@ -131,7 +182,8 @@ function signOut() {
   if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
     try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
   }
-  accessToken = null; tokenExpires = 0; profile = null;
+  forgetToken();
+  profile = null;
   localStorage.removeItem(LS.fileId);
 }
 
@@ -148,7 +200,7 @@ async function gapi(url, opts) {
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   if (res.status === 401) {          // トークンが切れていた。取り直して1度だけやり直す。
-    accessToken = null;
+    forgetToken();
     const fresh = await getToken(false);
     const retry = await fetch(url, {
       method: opts.method || 'GET',

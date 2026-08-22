@@ -702,6 +702,16 @@ details.tableview > div { margin-top: 8px; }
     const [y, m] = key.split('-');
     return (+m === 1 ? y.slice(2) + '/' : '') + (+m) + '月';
   };
+  /** YYYY-MM に n ヶ月足す。年またぎもここで面倒を見る。 */
+  function addMonthKey(key, n) {
+    if (!/^\d{4}-\d{2}$/.test(key || '')) return key;
+    const [y, m] = key.split('-').map(Number);
+    const t = (y * 12) + (m - 1) + n;
+    return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+  }
+  /** 実際に口座から出ていく月。未設定の古い記録は利用月とみなす。 */
+  const payMonthOf = t => t.payMonth || monthKey(t.date);
+
   function monthsBetween(fromKey, toKey) {
     const [y1, m1] = fromKey.split('-').map(Number);
     const [y2, m2] = toKey.split('-').map(Number);
@@ -762,7 +772,8 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 
 const LS = {
   clientId: 'saimu.clientId',
-  fileId:   'saimu.fileId'
+  fileId:   'saimu.fileId',
+  token:    'saimu.token'
 };
 
 /* ---------- 表の形 ---------- */
@@ -770,7 +781,7 @@ const LS = {
 const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
           'initial', 'rate', 'minPayment', 'createdAt'],
-  txns: ['id', 'type', 'date', 'amount', 'category', 'memo'],
+  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
@@ -783,6 +794,7 @@ const NUMERIC = new Set(['principal', 'interestAccrued', 'initial', 'rate', 'min
 
 const DAY_BASIS_DB = 365;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_MONTH = /^\d{4}-\d{2}$/;
 
 function daysBetweenISO(fromISO, toISO) {
   if (!ISO_DATE.test(fromISO || '') || !ISO_DATE.test(toISO || '')) return 0;
@@ -808,6 +820,20 @@ const nowISO = () => {
 };
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
+/** YYYY-MM に n ヶ月足す。年またぎもここで面倒を見る。 */
+function addMonthKey(key, n) {
+  if (!ISO_MONTH.test(key || '')) return key;
+  const [y, m] = key.split('-').map(Number);
+  const t = (y * 12) + (m - 1) + n;
+  return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+}
+const monthOf = iso => String(iso || '').slice(0, 7);
+/** 引落月。指定が無ければ利用月そのまま（＝現金・口座払い）。 */
+function payMonthFor(b, date) {
+  const given = strOf(b.payMonth, 7);
+  return ISO_MONTH.test(given) ? given : monthOf(date);
+}
+
 class Refused extends Error {}
 
 function debtFields(b) {
@@ -831,6 +857,39 @@ let tokenClient = null;
 let accessToken = null;
 let tokenExpires = 0;
 let profile = null;
+
+/**
+ * アクセストークンは1時間で切れる短命な鍵。これを端末に覚えておかないと、
+ * 画面を再読み込みするたびに Google のログインをやり直す羽目になる。
+ * 保存先はこの端末のこのサイト専用の領域で、他のサイトからは読めない。
+ */
+function rememberToken() {
+  try {
+    localStorage.setItem(LS.token, JSON.stringify({ t: accessToken, e: tokenExpires }));
+  } catch (e) { /* 保存できなくても動作は続けられる */ }
+}
+function forgetToken() {
+  accessToken = null; tokenExpires = 0;
+  try { localStorage.removeItem(LS.token); } catch (e) {}
+}
+function recallToken() {
+  try {
+    const raw = localStorage.getItem(LS.token);
+    if (!raw) return false;
+    const v = JSON.parse(raw);
+    // 期限ぎりぎりのものは使わない。操作の途中で切れる方が困る。
+    if (v && v.t && v.e > Date.now() + 120000) {
+      accessToken = v.t; tokenExpires = v.e;
+      return true;
+    }
+  } catch (e) { /* 壊れていたら捨てる */ }
+  forgetToken();
+  return false;
+}
+recallToken();
+
+/** 覚えている鍵だけで進めるか。true ならログイン画面を出さずに済む。 */
+const hasLiveToken = () => !!accessToken && Date.now() < tokenExpires - 120000;
 
 const setClientId = id => {
   clientId = String(id || '').trim();
@@ -863,12 +922,14 @@ async function getToken(interactive) {
         if (r.error) return reject(new Refused(r.error_description || r.error));
         accessToken = r.access_token;
         tokenExpires = Date.now() + (Number(r.expires_in || 3600) * 1000);
+        rememberToken();
         resolve(accessToken);
       },
       error_callback: e => reject(new Refused((e && e.message) || 'ログインを中断しました'))
     });
-    // 初回は同意画面を出す。2回目以降は黙って取り直す。
-    tokenClient.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+    // prompt を空にすると、同意済みなら黙って発行され、必要なときだけ画面が出る。
+    // 'consent' を指定すると毎回同意画面が出てしまうので使わない。
+    tokenClient.requestAccessToken({ prompt: '' });
   });
 }
 
@@ -876,7 +937,8 @@ function signOut() {
   if (accessToken && window.google && google.accounts && google.accounts.oauth2) {
     try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
   }
-  accessToken = null; tokenExpires = 0; profile = null;
+  forgetToken();
+  profile = null;
   localStorage.removeItem(LS.fileId);
 }
 
@@ -893,7 +955,7 @@ async function gapi(url, opts) {
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   if (res.status === 401) {          // トークンが切れていた。取り直して1度だけやり直す。
-    accessToken = null;
+    forgetToken();
     const fresh = await getToken(false);
     const retry = await fetch(url, {
       method: opts.method || 'GET',
@@ -1158,13 +1220,14 @@ const MUT = {
   addTxn(b) {
     const amount = toNum(b.amount);
     if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    const type = b.type === 'income' ? 'income' : 'expense';
+    const date = dateOrDefault(b.date, nowISO());
     mem.txns.push({
-      id: newId(),
-      type: b.type === 'income' ? 'income' : 'expense',
-      date: dateOrDefault(b.date, nowISO()),
-      amount,
+      id: newId(), type, date, amount,
       category: strOf(b.category, 30) || 'その他',
-      memo: strOf(b.memo, 60)
+      memo: strOf(b.memo, 60),
+      // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
+      payMonth: type === 'income' ? monthOf(date) : payMonthFor(b, date)
     });
   },
 
@@ -1199,11 +1262,12 @@ const MUT = {
     for (const t of (p.txns || [])) {
       const amount = toNum(t.amount);
       if (!(amount > 0)) continue;
+      const ttype = t.type === 'income' ? 'income' : 'expense';
+      const tdate = dateOrDefault(t.date, nowISO());
       txns.push({
-        id: strOf(t.id, 40) || newId(),
-        type: t.type === 'income' ? 'income' : 'expense',
-        date: dateOrDefault(t.date, nowISO()), amount,
-        category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60)
+        id: strOf(t.id, 40) || newId(), type: ttype, date: tdate, amount,
+        category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60),
+        payMonth: ttype === 'income' ? monthOf(tdate) : payMonthFor(t, tdate)
       });
     }
     const repayments = [];
@@ -1255,12 +1319,16 @@ const MUT = {
     for (let i = 5; i >= 0; i--) {
       const m = mk(i);
       mem.txns.push({ id: newId(), type: 'income', date: m + '-25',
-                      amount: 328000 + (i % 2 ? 0 : 4000), category: '給与', memo: '' });
+                      amount: 328000 + (i % 2 ? 0 : 4000), category: '給与', memo: '', payMonth: m });
       if (i === 1) mem.txns.push({ id: newId(), type: 'income', date: m + '-10',
-                                   amount: 420000, category: '賞与', memo: '夏季' });
+                                   amount: 420000, category: '賞与', memo: '夏季', payMonth: m });
+      // カードで払いがちな費目は、利用した月ではなく翌月に口座から出ていく
+      const CARD = new Set(['通信', '娯楽', '交際費', '被服']);
       EX.forEach(([c, v], k) => mem.txns.push({
         id: newId(), type: 'expense', date: m + '-' + String(3 + k * 2).padStart(2, '0'),
-        amount: v + ((i * 7 + k * 3) % 5) * 400, category: c, memo: ''
+        amount: v + ((i * 7 + k * 3) % 5) * 400, category: c,
+        memo: CARD.has(c) ? 'カード払い' : '',
+        payMonth: CARD.has(c) ? addMonthKey(m, 1) : m
       }));
       seeds.forEach(({ d, pay }) => {
         const date = m + '-27';
@@ -1473,7 +1541,18 @@ async function boot() {
 
   if (!clientId) { showGate(); return; }
 
-  // 前回ログイン済みなら、同意画面を出さずに黙って入り直す
+  // 期限内の鍵を覚えていれば、Google には一切問い合わせずそのまま開く。
+  // 再読み込みのたびにログインが出るのを防ぐのはここ。
+  if (hasLiveToken()) {
+    try {
+      await afterSignIn();
+      return;
+    } catch (e) {
+      forgetToken();                    // 鍵が通らなかった（失効・取り消し）
+    }
+  }
+
+  // 鍵が無い・切れている場合だけ取り直す。同意済みなら画面は出ない。
   try {
     await getToken(false);
     await afterSignIn();
@@ -1633,16 +1712,36 @@ window.saimuSignOut = signOutAndReset;
   /* ==========================================================
      4. 集計
      ========================================================== */
+  /**
+   * 月次の集計。支出は2つの見方を持つ。
+   *   expense     発生ベース … 使った月。「今月いくら使ったか」を見るための数字。
+   *   expensePaid 引落ベース … 実際に口座から出ていく月。カード払いは翌月に回る。
+   * 「返済に回せる余力」は現金の話なので、引落ベースで出す。
+   */
   function monthSummary(key) {
-    let income = 0, expense = 0;
+    let income = 0, expense = 0, expensePaid = 0, deferred = 0;
     state.txns.forEach(t => {
-      if (monthKey(t.date) !== key) return;
-      if (t.type === 'income') income += t.amount; else expense += t.amount;
+      const used = monthKey(t.date) === key;
+      const paid = payMonthOf(t) === key;
+      if (t.type === 'income') { if (used) income += t.amount; return; }
+      if (used) {
+        expense += t.amount;
+        if (payMonthOf(t) !== key) deferred += t.amount;   // 今月使ったが翌月以降に出ていく分
+      }
+      if (paid) expensePaid += t.amount;
     });
     const repay = state.repayments
       .filter(r => monthKey(r.date) === key)
       .reduce((s, r) => s + r.amount, 0);
-    return { key, income, expense, repay, net: income - expense - repay };
+    return { key, income, expense, expensePaid, deferred, repay,
+             net: income - expensePaid - repay };
+  }
+
+  /** その月に引き落とされる額のうち、前の月までに使った分（＝カード払いの繰越）。 */
+  function carriedInto(key) {
+    return state.txns
+      .filter(t => t.type === 'expense' && payMonthOf(t) === key && monthKey(t.date) !== key)
+      .reduce((s, t) => s + t.amount, 0);
   }
 
   /** 直近 n ヶ月（当月を含む）のキー配列 */
@@ -2123,7 +2222,7 @@ window.saimuSignOut = signOutAndReset;
          <div class="tile">
            <span class="tile-label">今月の収支（返済後）</span>
            <span class="tile-value ${ms.net < 0 ? 'neg' : 'pos'}">${yen(ms.net)}</span>
-           <span class="tile-delta">収入 ${compact(ms.income)}・支出 ${compact(ms.expense)}・返済 ${compact(ms.repay)}</span>
+           <span class="tile-delta">収入 ${compact(ms.income)}・引落 ${compact(ms.expensePaid)}・返済 ${compact(ms.repay)}${ms.deferred > 0 ? `<br>カードで翌月に回る分 ${compact(ms.deferred)}` : ''}</span>
          </div>
          <div class="tile">
            <span class="tile-label">これから1ヶ月の利息</span>
@@ -2188,12 +2287,13 @@ window.saimuSignOut = signOutAndReset;
     const sums = keys.map(monthSummary);
     const series = [
       { name: '収入', color: SERIES(0) },
-      { name: '生活支出', color: SERIES(1) },
+      { name: '生活支出（引落）', color: SERIES(1) },
       { name: '返済', color: SERIES(2) }
     ];
+    // 棒は現金の出入りなので引落ベース。使った月ではなく出ていく月で並べる。
     const groups = sums.map(s => ({
       label: fmtMonthShort(s.key), full: s.key.replace('-', '年') + '月',
-      values: [s.income, s.expense, s.repay], net: s.net
+      values: [s.income, s.expensePaid, s.repay], net: s.net
     }));
     const c = document.getElementById(chartId);
     if (!sums.some(s => s.income || s.expense || s.repay)) {
@@ -2206,14 +2306,19 @@ window.saimuSignOut = signOutAndReset;
     if (legendId) document.getElementById(legendId).innerHTML = legendHTML(series);
     if (tableId) {
       document.getElementById(tableId).innerHTML = `<div class="table-wrap"><table class="ledger">
-        <thead><tr><th>月</th><th class="r">収入</th><th class="r">生活支出</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
+        <thead><tr><th>月</th><th class="r">収入</th>
+          <th class="r col-memo" title="その月に使った額">使った額</th>
+          <th class="r">引落</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
         <tbody>${sums.map(s => `<tr><td>${esc(s.key)}</td>
-          <td class="r">${yen(s.income)}</td><td class="r">${yen(s.expense)}</td>
+          <td class="r">${yen(s.income)}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${yen(s.expense)}</td>
+          <td class="r">${yen(s.expensePaid)}</td>
           <td class="r">${yen(s.repay)}</td>
           <td class="r ${s.net < 0 ? 'amt-neg' : 'amt-pos'}">${yen(s.net)}</td></tr>`).join('')}</tbody>
         <tfoot><tr><td>合計</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.income, 0))}</td>
-          <td class="r">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.expensePaid, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.repay, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.net, 0))}</td></tr></tfoot></table></div>`;
     }
@@ -2315,9 +2420,12 @@ window.saimuSignOut = signOutAndReset;
       .sort((a, b) => b.date.localeCompare(a.date));
     const cats = expenseByCategory(cashMonth);
     const repRows = state.repayments.filter(r => monthKey(r.date) === cashMonth);
+    const carried = carriedInto(cashMonth);
+    const nextKey = addMonthKey(cashMonth, 1);
+    const nextS = monthSummary(nextKey);
 
     root.innerHTML =
-      headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。<b>収入 − 生活支出 − 返済 = 返済に回せる余力</b>です。') +
+      headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。カード払いは<b>口座から出ていく月</b>で数えるので、<b>収入 − 引落 − 返済 = 返済に回せる余力</b>が実態どおりになります。') +
       `<div class="toolbar">
          <button class="btn primary" data-act="add-income">${ICON.plus}収入を追加</button>
          <button class="btn" data-act="add-expense">${ICON.plus}支出を追加</button>
@@ -2330,12 +2438,21 @@ window.saimuSignOut = signOutAndReset;
 
        <div class="grid g-4">
          <div class="tile"><span class="tile-label">収入</span><span class="tile-value pos">${yen(s.income)}</span></div>
-         <div class="tile"><span class="tile-label">生活支出</span><span class="tile-value">${yen(s.expense)}</span></div>
+         <div class="tile"><span class="tile-label">生活支出（引落ベース）</span>
+           <span class="tile-value">${yen(s.expensePaid)}</span>
+           <span class="tile-delta">${carried > 0 ? `うち前月までの利用 ${compact(carried)}` : 'すべて当月の利用'}</span></div>
          <div class="tile"><span class="tile-label">返済</span><span class="tile-value">${yen(s.repay)}</span>
            <span class="tile-delta">${repRows.length}件の記録</span></div>
          <div class="tile"><span class="tile-label">残り（貯蓄・繰上返済の余力）</span>
            <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span></div>
        </div>
+
+       ${s.deferred > 0 || nextS.expensePaid > 0 ? `
+       <div class="callout info" style="margin-top:16px">${ICON.info}<div>
+         この月に使った <b>${yen(s.expense)}</b> のうち <b>${yen(s.deferred)}</b> はカード払いで、
+         口座から出ていくのは翌月以降です。
+         <b>${nextKey.replace('-', '年')}月の引落予定は ${yen(nextS.expensePaid)}</b>（うちこの月の利用が ${yen(s.deferred)}）。
+       </div></div>` : ''}
 
        <div class="grid g-2" style="margin-top:16px">
          <div class="panel">
@@ -2357,7 +2474,9 @@ window.saimuSignOut = signOutAndReset;
                <td>${esc(t.date)}</td>
                <td>${t.type === 'income'
                  ? '<span class="pill ok">収入</span>'
-                 : '<span class="pill flat">支出</span>'}</td>
+                 : payMonthOf(t) !== monthKey(t.date)
+                   ? `<span class="pill warn" title="${esc(payMonthOf(t))} に口座から出ていきます">カード</span>`
+                   : '<span class="pill flat">支出</span>'}</td>
                <td>${esc(t.category)}</td>
                <td class="r ${t.type === 'income' ? 'amt-pos' : ''}">${t.type === 'income' ? '+' : '−'}${yen0(t.amount)}</td>
                <td class="col-memo" style="color:var(--ink-2)">${esc(t.memo || '')}</td>
@@ -2960,7 +3079,26 @@ window.saimuSignOut = signOutAndReset;
           <select id="t-cat" name="category">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label for="t-memo">メモ</label>
           <input type="text" id="t-memo" name="memo" maxlength="60" placeholder="任意"></div>
+        ${type === 'expense' ? `
+        <div class="field full"><label for="t-pay">口座から出ていくのは</label>
+          <select id="t-pay" name="payOffset">
+            <option value="0">今月（現金・口座引落・デビット）</option>
+            <option value="1">来月（クレジットカード）</option>
+          </select>
+          <span class="note" id="t-paynote"></span></div>` : ''}
       </div>`,
+      onOpen: type === 'expense' ? () => {
+        const dateEl = document.getElementById('t-date');
+        const payEl = document.getElementById('t-pay');
+        const note = document.getElementById('t-paynote');
+        const upd = () => {
+          const m = addMonthKey(monthKey(dateEl.value || todayISO()), +payEl.value || 0);
+          note.textContent = m.replace('-', '年') + '月の支出として集計します';
+        };
+        dateEl.addEventListener('change', upd);
+        payEl.addEventListener('change', upd);
+        upd();
+      } : undefined,
       onOk: fd => {
         const amount = numOf(fd, 'amount');
         if (amount <= 0) return false;
@@ -2969,7 +3107,8 @@ window.saimuSignOut = signOutAndReset;
         commit('/txns', 'POST', {
           type, date, amount,
           category: String(fd.get('category') || 'その他'),
-          memo: String(fd.get('memo') || '').trim()
+          memo: String(fd.get('memo') || '').trim(),
+          payMonth: addMonthKey(monthKey(date), +(fd.get('payOffset') || 0))
         }, label + 'を追加しました');
       }
     });

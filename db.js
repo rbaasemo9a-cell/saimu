@@ -29,12 +29,14 @@ CREATE TABLE IF NOT EXISTS debts (
 );
 
 CREATE TABLE IF NOT EXISTS txns (
-  id       TEXT PRIMARY KEY,
-  type     TEXT NOT NULL CHECK(type IN ('income','expense')),
-  date     TEXT NOT NULL,
-  amount   REAL NOT NULL CHECK(amount > 0),
-  category TEXT NOT NULL DEFAULT 'その他',
-  memo     TEXT NOT NULL DEFAULT ''
+  id        TEXT PRIMARY KEY,
+  type      TEXT NOT NULL CHECK(type IN ('income','expense')),
+  date      TEXT NOT NULL,
+  amount    REAL NOT NULL CHECK(amount > 0),
+  category  TEXT NOT NULL DEFAULT 'その他',
+  memo      TEXT NOT NULL DEFAULT '',
+  -- 実際に口座から出ていく月。カード払いは利用した月の翌月になる。
+  pay_month TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS repayments (
@@ -97,6 +99,21 @@ function localToday() {
          '-' + String(d.getDate()).padStart(2, '0');
 }
 
+const ISO_MONTH = /^\d{4}-\d{2}$/;
+const monthOf = iso => String(iso || '').slice(0, 7);
+/** YYYY-MM に n ヶ月足す。年またぎもここで面倒を見る。 */
+function addMonthKey(key, n) {
+  if (!ISO_MONTH.test(key)) return key;
+  const [y, m] = key.split('-').map(Number);
+  const t = (y * 12) + (m - 1) + n;
+  return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+}
+/** 引落月。指定が無ければ利用月そのまま（＝現金・口座払い）。 */
+function payMonthOf(b, date) {
+  const given = str(b.payMonth, 7);
+  return ISO_MONTH.test(given) ? given : monthOf(date);
+}
+
 class BadRequest extends Error {
   constructor(msg) { super(msg); this.status = 400; }
 }
@@ -148,6 +165,18 @@ function accrue(d, toISO) {
   console.log('[db] 借入を「元金＋未払利息」の形に移行しました');
 })();
 
+/** 引落月を持たなかった頃の記録に、利用月をそのまま入れる（＝現金払い扱い）。 */
+(function migrateTxns() {
+  const cols = new Set(db.prepare('PRAGMA table_info(txns)').all().map(c => c.name));
+  if (!cols.has('pay_month')) {
+    db.exec(`ALTER TABLE txns ADD COLUMN pay_month TEXT NOT NULL DEFAULT ''`);
+  }
+  const n = db.prepare("SELECT COUNT(*) AS n FROM txns WHERE pay_month = ''").get().n;
+  if (!n) return;
+  db.exec("UPDATE txns SET pay_month = substr(date, 1, 7) WHERE pay_month = ''");
+  console.log('[db] 収支 ' + n + ' 件に引落月を補いました');
+})();
+
 /* ---------- 読み取り ---------- */
 
 const Q = {
@@ -155,7 +184,8 @@ const Q = {
                             accrued_at AS accruedAt, initial, rate,
                             min_payment AS minPayment, created_at AS createdAt
                      FROM debts ORDER BY created_at, rowid`),
-  txns: db.prepare(`SELECT id, type, date, amount, category, memo
+  txns: db.prepare(`SELECT id, type, date, amount, category, memo,
+                           pay_month AS payMonth
                     FROM txns ORDER BY date DESC, rowid DESC`),
   reps: db.prepare(`SELECT id, debt_id AS debtId, date, amount, interest, principal, memo
                     FROM repayments ORDER BY date DESC, rowid DESC`),
@@ -294,9 +324,13 @@ function addTxn(b) {
   const type = b.type === 'income' ? 'income' : 'expense';
   const amount = num(b.amount);
   if (!(amount > 0)) throw new BadRequest('金額は1円以上で入力してください');
+  const date = dateOr(b.date, localToday());
   const id = uid();
-  db.prepare('INSERT INTO txns (id, type, date, amount, category, memo) VALUES (?,?,?,?,?,?)')
-    .run(id, type, dateOr(b.date, localToday()), amount, str(b.category, 30) || 'その他', str(b.memo, 60));
+  // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
+  const payMonth = type === 'income' ? monthOf(date) : payMonthOf(b, date);
+  db.prepare(`INSERT INTO txns (id, type, date, amount, category, memo, pay_month)
+              VALUES (?,?,?,?,?,?,?)`)
+    .run(id, type, date, amount, str(b.category, 30) || 'その他', str(b.memo, 60), payMonth);
   return id;
 }
 
@@ -342,12 +376,16 @@ function importState(p) {
                f.initial, f.rate, f.minPayment, dateOr(d.createdAt, localToday()));
     }
 
-    const insT = db.prepare('INSERT OR IGNORE INTO txns (id,type,date,amount,category,memo) VALUES (?,?,?,?,?,?)');
+    const insT = db.prepare(`INSERT OR IGNORE INTO txns (id,type,date,amount,category,memo,pay_month)
+                             VALUES (?,?,?,?,?,?,?)`);
     for (const t of (p.txns || [])) {
       const amt = num(t.amount);
       if (!(amt > 0)) continue;
-      insT.run(str(t.id, 40) || uid(), t.type === 'income' ? 'income' : 'expense',
-               dateOr(t.date, localToday()), amt, str(t.category, 30) || 'その他', str(t.memo, 60));
+      const type = t.type === 'income' ? 'income' : 'expense';
+      const date = dateOr(t.date, localToday());
+      insT.run(str(t.id, 40) || uid(), type, date, amt,
+               str(t.category, 30) || 'その他', str(t.memo, 60),
+               type === 'income' ? monthOf(date) : payMonthOf(t, date));
     }
 
     const insR = db.prepare(`INSERT OR IGNORE INTO repayments (id,debt_id,date,amount,interest,principal,memo)
@@ -394,7 +432,10 @@ function loadSample() {
       return { id, prin, rate, pay, accruedAt: mk(6) + '-27' };
     });
 
-    const insT = db.prepare('INSERT INTO txns (id,type,date,amount,category,memo) VALUES (?,?,?,?,?,?)');
+    const insT = db.prepare(`INSERT INTO txns (id,type,date,amount,category,memo,pay_month)
+                             VALUES (?,?,?,?,?,?,?)`);
+    // カードで払いがちな費目。利用した月ではなく翌月に口座から出ていく。
+    const CARD = new Set(['通信', '娯楽', '交際費', '被服']);
     const insR = db.prepare(`INSERT INTO repayments (id,debt_id,date,amount,interest,principal,memo)
                              VALUES (?,?,?,?,?,?,?)`);
     const EX = [['住居', 82000], ['食費', 54000], ['水道光熱', 16500], ['通信', 9800],
@@ -402,11 +443,13 @@ function loadSample() {
 
     for (let i = 5; i >= 0; i--) {
       const m = mk(i);
-      insT.run(uid(), 'income', m + '-25', 328000 + (i % 2 ? 0 : 4000), '給与', '');
-      if (i === 1) insT.run(uid(), 'income', m + '-10', 420000, '賞与', '夏季');
+      insT.run(uid(), 'income', m + '-25', 328000 + (i % 2 ? 0 : 4000), '給与', '', m);
+      if (i === 1) insT.run(uid(), 'income', m + '-10', 420000, '賞与', '夏季', m);
       EX.forEach(([c, v], k) =>
         insT.run(uid(), 'expense', m + '-' + String(3 + k * 2).padStart(2, '0'),
-                 v + ((i * 7 + k * 3) % 5) * 400, c, ''));
+                 v + ((i * 7 + k * 3) % 5) * 400, c,
+                 CARD.has(c) ? 'カード払い' : '',
+                 CARD.has(c) ? addMonthKey(m, 1) : m));
       debts.forEach(d => {
         const date = m + '-27';
         if (date > today) return;          // まだ来ていない返済日は記録しない
@@ -456,7 +499,7 @@ function stats() {
 }
 
 module.exports = {
-  DB_PATH, BadRequest, DAY_BASIS, daysBetween,
+  DB_PATH, BadRequest, DAY_BASIS, daysBetween, addMonthKey,
   getState, stats,
   addDebt, updateDebt, deleteDebt,
   addRepayment, deleteRepayment,

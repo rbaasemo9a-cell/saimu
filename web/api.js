@@ -86,13 +86,14 @@ const MUT = {
   addTxn(b) {
     const amount = toNum(b.amount);
     if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    const type = b.type === 'income' ? 'income' : 'expense';
+    const date = dateOrDefault(b.date, nowISO());
     mem.txns.push({
-      id: newId(),
-      type: b.type === 'income' ? 'income' : 'expense',
-      date: dateOrDefault(b.date, nowISO()),
-      amount,
+      id: newId(), type, date, amount,
       category: strOf(b.category, 30) || 'その他',
-      memo: strOf(b.memo, 60)
+      memo: strOf(b.memo, 60),
+      // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
+      payMonth: type === 'income' ? monthOf(date) : payMonthFor(b, date)
     });
   },
 
@@ -127,11 +128,12 @@ const MUT = {
     for (const t of (p.txns || [])) {
       const amount = toNum(t.amount);
       if (!(amount > 0)) continue;
+      const ttype = t.type === 'income' ? 'income' : 'expense';
+      const tdate = dateOrDefault(t.date, nowISO());
       txns.push({
-        id: strOf(t.id, 40) || newId(),
-        type: t.type === 'income' ? 'income' : 'expense',
-        date: dateOrDefault(t.date, nowISO()), amount,
-        category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60)
+        id: strOf(t.id, 40) || newId(), type: ttype, date: tdate, amount,
+        category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60),
+        payMonth: ttype === 'income' ? monthOf(tdate) : payMonthFor(t, tdate)
       });
     }
     const repayments = [];
@@ -183,12 +185,16 @@ const MUT = {
     for (let i = 5; i >= 0; i--) {
       const m = mk(i);
       mem.txns.push({ id: newId(), type: 'income', date: m + '-25',
-                      amount: 328000 + (i % 2 ? 0 : 4000), category: '給与', memo: '' });
+                      amount: 328000 + (i % 2 ? 0 : 4000), category: '給与', memo: '', payMonth: m });
       if (i === 1) mem.txns.push({ id: newId(), type: 'income', date: m + '-10',
-                                   amount: 420000, category: '賞与', memo: '夏季' });
+                                   amount: 420000, category: '賞与', memo: '夏季', payMonth: m });
+      // カードで払いがちな費目は、利用した月ではなく翌月に口座から出ていく
+      const CARD = new Set(['通信', '娯楽', '交際費', '被服']);
       EX.forEach(([c, v], k) => mem.txns.push({
         id: newId(), type: 'expense', date: m + '-' + String(3 + k * 2).padStart(2, '0'),
-        amount: v + ((i * 7 + k * 3) % 5) * 400, category: c, memo: ''
+        amount: v + ((i * 7 + k * 3) % 5) * 400, category: c,
+        memo: CARD.has(c) ? 'カード払い' : '',
+        payMonth: CARD.has(c) ? addMonthKey(m, 1) : m
       }));
       seeds.forEach(({ d, pay }) => {
         const date = m + '-27';

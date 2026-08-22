@@ -97,6 +97,10 @@ const HARNESS = `
     // --- 7. 正しく入れれば保存できる（SQLite に届いたかを API で確かめる） ---
     const n0 = await txnCount();
     $('#t-amt').value = '1234';
+    // 直前の手順で検証エラーを出しているので、入力イベントを起こして
+    // ブラウザ側の「無効」表示を消してから押す（人が打つのと同じ状態にする）
+    $('#t-amt').dispatchEvent(new Event('input', { bubbles: true }));
+    await wait(60);
     $('#dlgOk').click();
     const closed = await waitFor(async () => !dlg.open);
     const saved = await waitFor(async () => (await txnCount()) === n0 + 1);

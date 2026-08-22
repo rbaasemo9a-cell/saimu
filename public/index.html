@@ -663,6 +663,16 @@ details.tableview > div { margin-top: 8px; }
     const [y, m] = key.split('-');
     return (+m === 1 ? y.slice(2) + '/' : '') + (+m) + '月';
   };
+  /** YYYY-MM に n ヶ月足す。年またぎもここで面倒を見る。 */
+  function addMonthKey(key, n) {
+    if (!/^\d{4}-\d{2}$/.test(key || '')) return key;
+    const [y, m] = key.split('-').map(Number);
+    const t = (y * 12) + (m - 1) + n;
+    return Math.floor(t / 12) + '-' + String((t % 12) + 1).padStart(2, '0');
+  }
+  /** 実際に口座から出ていく月。未設定の古い記録は利用月とみなす。 */
+  const payMonthOf = t => t.payMonth || monthKey(t.date);
+
   function monthsBetween(fromKey, toKey) {
     const [y1, m1] = fromKey.split('-').map(Number);
     const [y2, m2] = toKey.split('-').map(Number);
@@ -894,16 +904,36 @@ details.tableview > div { margin-top: 8px; }
   /* ==========================================================
      4. 集計
      ========================================================== */
+  /**
+   * 月次の集計。支出は2つの見方を持つ。
+   *   expense     発生ベース … 使った月。「今月いくら使ったか」を見るための数字。
+   *   expensePaid 引落ベース … 実際に口座から出ていく月。カード払いは翌月に回る。
+   * 「返済に回せる余力」は現金の話なので、引落ベースで出す。
+   */
   function monthSummary(key) {
-    let income = 0, expense = 0;
+    let income = 0, expense = 0, expensePaid = 0, deferred = 0;
     state.txns.forEach(t => {
-      if (monthKey(t.date) !== key) return;
-      if (t.type === 'income') income += t.amount; else expense += t.amount;
+      const used = monthKey(t.date) === key;
+      const paid = payMonthOf(t) === key;
+      if (t.type === 'income') { if (used) income += t.amount; return; }
+      if (used) {
+        expense += t.amount;
+        if (payMonthOf(t) !== key) deferred += t.amount;   // 今月使ったが翌月以降に出ていく分
+      }
+      if (paid) expensePaid += t.amount;
     });
     const repay = state.repayments
       .filter(r => monthKey(r.date) === key)
       .reduce((s, r) => s + r.amount, 0);
-    return { key, income, expense, repay, net: income - expense - repay };
+    return { key, income, expense, expensePaid, deferred, repay,
+             net: income - expensePaid - repay };
+  }
+
+  /** その月に引き落とされる額のうち、前の月までに使った分（＝カード払いの繰越）。 */
+  function carriedInto(key) {
+    return state.txns
+      .filter(t => t.type === 'expense' && payMonthOf(t) === key && monthKey(t.date) !== key)
+      .reduce((s, t) => s + t.amount, 0);
   }
 
   /** 直近 n ヶ月（当月を含む）のキー配列 */
@@ -1384,7 +1414,7 @@ details.tableview > div { margin-top: 8px; }
          <div class="tile">
            <span class="tile-label">今月の収支（返済後）</span>
            <span class="tile-value ${ms.net < 0 ? 'neg' : 'pos'}">${yen(ms.net)}</span>
-           <span class="tile-delta">収入 ${compact(ms.income)}・支出 ${compact(ms.expense)}・返済 ${compact(ms.repay)}</span>
+           <span class="tile-delta">収入 ${compact(ms.income)}・引落 ${compact(ms.expensePaid)}・返済 ${compact(ms.repay)}${ms.deferred > 0 ? `<br>カードで翌月に回る分 ${compact(ms.deferred)}` : ''}</span>
          </div>
          <div class="tile">
            <span class="tile-label">これから1ヶ月の利息</span>
@@ -1449,12 +1479,13 @@ details.tableview > div { margin-top: 8px; }
     const sums = keys.map(monthSummary);
     const series = [
       { name: '収入', color: SERIES(0) },
-      { name: '生活支出', color: SERIES(1) },
+      { name: '生活支出（引落）', color: SERIES(1) },
       { name: '返済', color: SERIES(2) }
     ];
+    // 棒は現金の出入りなので引落ベース。使った月ではなく出ていく月で並べる。
     const groups = sums.map(s => ({
       label: fmtMonthShort(s.key), full: s.key.replace('-', '年') + '月',
-      values: [s.income, s.expense, s.repay], net: s.net
+      values: [s.income, s.expensePaid, s.repay], net: s.net
     }));
     const c = document.getElementById(chartId);
     if (!sums.some(s => s.income || s.expense || s.repay)) {
@@ -1467,14 +1498,19 @@ details.tableview > div { margin-top: 8px; }
     if (legendId) document.getElementById(legendId).innerHTML = legendHTML(series);
     if (tableId) {
       document.getElementById(tableId).innerHTML = `<div class="table-wrap"><table class="ledger">
-        <thead><tr><th>月</th><th class="r">収入</th><th class="r">生活支出</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
+        <thead><tr><th>月</th><th class="r">収入</th>
+          <th class="r col-memo" title="その月に使った額">使った額</th>
+          <th class="r">引落</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
         <tbody>${sums.map(s => `<tr><td>${esc(s.key)}</td>
-          <td class="r">${yen(s.income)}</td><td class="r">${yen(s.expense)}</td>
+          <td class="r">${yen(s.income)}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${yen(s.expense)}</td>
+          <td class="r">${yen(s.expensePaid)}</td>
           <td class="r">${yen(s.repay)}</td>
           <td class="r ${s.net < 0 ? 'amt-neg' : 'amt-pos'}">${yen(s.net)}</td></tr>`).join('')}</tbody>
         <tfoot><tr><td>合計</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.income, 0))}</td>
-          <td class="r">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
+          <td class="r">${yen(sums.reduce((a, s) => a + s.expensePaid, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.repay, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.net, 0))}</td></tr></tfoot></table></div>`;
     }
@@ -1576,9 +1612,12 @@ details.tableview > div { margin-top: 8px; }
       .sort((a, b) => b.date.localeCompare(a.date));
     const cats = expenseByCategory(cashMonth);
     const repRows = state.repayments.filter(r => monthKey(r.date) === cashMonth);
+    const carried = carriedInto(cashMonth);
+    const nextKey = addMonthKey(cashMonth, 1);
+    const nextS = monthSummary(nextKey);
 
     root.innerHTML =
-      headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。<b>収入 − 生活支出 − 返済 = 返済に回せる余力</b>です。') +
+      headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。カード払いは<b>口座から出ていく月</b>で数えるので、<b>収入 − 引落 − 返済 = 返済に回せる余力</b>が実態どおりになります。') +
       `<div class="toolbar">
          <button class="btn primary" data-act="add-income">${ICON.plus}収入を追加</button>
          <button class="btn" data-act="add-expense">${ICON.plus}支出を追加</button>
@@ -1591,12 +1630,21 @@ details.tableview > div { margin-top: 8px; }
 
        <div class="grid g-4">
          <div class="tile"><span class="tile-label">収入</span><span class="tile-value pos">${yen(s.income)}</span></div>
-         <div class="tile"><span class="tile-label">生活支出</span><span class="tile-value">${yen(s.expense)}</span></div>
+         <div class="tile"><span class="tile-label">生活支出（引落ベース）</span>
+           <span class="tile-value">${yen(s.expensePaid)}</span>
+           <span class="tile-delta">${carried > 0 ? `うち前月までの利用 ${compact(carried)}` : 'すべて当月の利用'}</span></div>
          <div class="tile"><span class="tile-label">返済</span><span class="tile-value">${yen(s.repay)}</span>
            <span class="tile-delta">${repRows.length}件の記録</span></div>
          <div class="tile"><span class="tile-label">残り（貯蓄・繰上返済の余力）</span>
            <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span></div>
        </div>
+
+       ${s.deferred > 0 || nextS.expensePaid > 0 ? `
+       <div class="callout info" style="margin-top:16px">${ICON.info}<div>
+         この月に使った <b>${yen(s.expense)}</b> のうち <b>${yen(s.deferred)}</b> はカード払いで、
+         口座から出ていくのは翌月以降です。
+         <b>${nextKey.replace('-', '年')}月の引落予定は ${yen(nextS.expensePaid)}</b>（うちこの月の利用が ${yen(s.deferred)}）。
+       </div></div>` : ''}
 
        <div class="grid g-2" style="margin-top:16px">
          <div class="panel">
@@ -1618,7 +1666,9 @@ details.tableview > div { margin-top: 8px; }
                <td>${esc(t.date)}</td>
                <td>${t.type === 'income'
                  ? '<span class="pill ok">収入</span>'
-                 : '<span class="pill flat">支出</span>'}</td>
+                 : payMonthOf(t) !== monthKey(t.date)
+                   ? `<span class="pill warn" title="${esc(payMonthOf(t))} に口座から出ていきます">カード</span>`
+                   : '<span class="pill flat">支出</span>'}</td>
                <td>${esc(t.category)}</td>
                <td class="r ${t.type === 'income' ? 'amt-pos' : ''}">${t.type === 'income' ? '+' : '−'}${yen0(t.amount)}</td>
                <td class="col-memo" style="color:var(--ink-2)">${esc(t.memo || '')}</td>
@@ -2221,7 +2271,26 @@ details.tableview > div { margin-top: 8px; }
           <select id="t-cat" name="category">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select></div>
         <div class="field"><label for="t-memo">メモ</label>
           <input type="text" id="t-memo" name="memo" maxlength="60" placeholder="任意"></div>
+        ${type === 'expense' ? `
+        <div class="field full"><label for="t-pay">口座から出ていくのは</label>
+          <select id="t-pay" name="payOffset">
+            <option value="0">今月（現金・口座引落・デビット）</option>
+            <option value="1">来月（クレジットカード）</option>
+          </select>
+          <span class="note" id="t-paynote"></span></div>` : ''}
       </div>`,
+      onOpen: type === 'expense' ? () => {
+        const dateEl = document.getElementById('t-date');
+        const payEl = document.getElementById('t-pay');
+        const note = document.getElementById('t-paynote');
+        const upd = () => {
+          const m = addMonthKey(monthKey(dateEl.value || todayISO()), +payEl.value || 0);
+          note.textContent = m.replace('-', '年') + '月の支出として集計します';
+        };
+        dateEl.addEventListener('change', upd);
+        payEl.addEventListener('change', upd);
+        upd();
+      } : undefined,
       onOk: fd => {
         const amount = numOf(fd, 'amount');
         if (amount <= 0) return false;
@@ -2230,7 +2299,8 @@ details.tableview > div { margin-top: 8px; }
         commit('/txns', 'POST', {
           type, date, amount,
           category: String(fd.get('category') || 'その他'),
-          memo: String(fd.get('memo') || '').trim()
+          memo: String(fd.get('memo') || '').trim(),
+          payMonth: addMonthKey(monthKey(date), +(fd.get('payOffset') || 0))
         }, label + 'を追加しました');
       }
     });

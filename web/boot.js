@@ -97,7 +97,18 @@ async function boot() {
 
   if (!clientId) { showGate(); return; }
 
-  // 前回ログイン済みなら、同意画面を出さずに黙って入り直す
+  // 期限内の鍵を覚えていれば、Google には一切問い合わせずそのまま開く。
+  // 再読み込みのたびにログインが出るのを防ぐのはここ。
+  if (hasLiveToken()) {
+    try {
+      await afterSignIn();
+      return;
+    } catch (e) {
+      forgetToken();                    // 鍵が通らなかった（失効・取り消し）
+    }
+  }
+
+  // 鍵が無い・切れている場合だけ取り直す。同意済みなら画面は出ない。
   try {
     await getToken(false);
     await afterSignIn();
