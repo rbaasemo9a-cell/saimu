@@ -73,11 +73,9 @@ async function signIn() {
 
 /** ログイン後：本人確認 → 自分のファイルを用意 → 読み込み → 描画 */
 async function afterSignIn() {
-  try {
-    profile = await gapi('https://www.googleapis.com/oauth2/v3/userinfo');
-  } catch (e) {
-    profile = null;                                  // 表示用なので取れなくても続ける
-  }
+  // ここで userinfo を叩いてはいけない。要求しているのは drive.file だけなので
+  // 権限外として 401 が返り、gapi がそれを「鍵が切れた」と誤解して鍵を捨て、
+  // 取り直しのポップアップを毎回出してしまう。メール表示のために払う代償ではない。
   await ensureFile();
   mem = await readAll();
   dbStats = await api('/stats');
@@ -85,7 +83,7 @@ async function afterSignIn() {
   online = true;
   hideGate();
   render();
-  if (profile && profile.email) toast(profile.email + ' として開きました');
+  toast('あなたのスプレッドシートを開きました');
 }
 
 async function boot() {

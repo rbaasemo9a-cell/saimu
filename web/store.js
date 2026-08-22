@@ -101,7 +101,6 @@ let clientId = localStorage.getItem(LS.clientId) || '';
 let tokenClient = null;
 let accessToken = null;
 let tokenExpires = 0;
-let profile = null;
 
 /**
  * アクセストークンは1時間で切れる短命な鍵。これを端末に覚えておかないと、
@@ -183,7 +182,6 @@ function signOut() {
     try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
   }
   forgetToken();
-  profile = null;
   localStorage.removeItem(LS.fileId);
 }
 

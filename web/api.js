@@ -229,8 +229,7 @@ async function api(path, method, body) {
       debts: mem.debts.length,
       txns: mem.txns.length,
       repayments: mem.repayments.length,
-      backupDir: 'Google ドライブ',
-      account: (profile && profile.email) || ''
+      backupDir: 'Google ドライブ'
     };
   }
 

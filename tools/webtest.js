@@ -68,6 +68,27 @@ ok('同意画面を毎回は強制しない', !app.includes("prompt: 'consent'")
 ok('ログアウトで覚えた鍵を消す', /function signOut[\s\S]{0,200}forgetToken\(\)/.test(app));
 ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,120}forgetToken\(\)/.test(app));
 
+/*
+ * 権限外のエンドポイントを叩かないこと。
+ * drive.file しか要求していないのに userinfo を叩くと 401 が返り、
+ * それを「鍵が切れた」と誤解して鍵を捨て、毎回ログインのポップアップが出る。
+ * 一度やらかしたので、行き先を許可リストで縛る。
+ */
+{
+  const ALLOWED = [
+    'https://sheets.googleapis.com/v4/spreadsheets',      // drive.file で作った表の読み書き
+    'https://www.googleapis.com/drive/v3/files',           // 自分が作ったファイルの検索・複製
+    'https://www.googleapis.com/auth/drive.file',          // スコープの宣言そのもの
+    'https://accounts.google.com/gsi/client',              // ログイン部品
+    'https://docs.google.com/spreadsheets/d/'              // 保存先を人に見せるための URL
+  ];
+  const found = [...new Set((app.match(/https:\/\/[a-z0-9.\-]*google[a-z.]*\/[^'"`\s)]*/gi) || [])
+    .map(u => u.replace(/\$\{[^}]*\}.*$/, '')))];
+  const stray = found.filter(u => !ALLOWED.some(a => u.startsWith(a)));
+  ok('Google への行き先が許可リストの中だけ', stray.length === 0, stray.join(' '));
+  ok('権限外の userinfo を叩いていない', !app.includes('oauth2/v3/userinfo'));
+}
+
 /* ==========================================================
    2. データ層のロジック
    ========================================================== */
