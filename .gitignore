@@ -11,3 +11,7 @@ saimu.key
 node_modules/
 npm-debug.log*
 .DS_Store
+
+# 書き出したデータ — コミットしない
+saimu-backup-*.json
+saimu-export*.json
