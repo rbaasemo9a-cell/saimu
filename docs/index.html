@@ -583,6 +583,12 @@ details.tableview > div { margin-top: 8px; }
 .gate-note {
   font-size: 11.5px; color: var(--ink-3); margin: 16px 0 0 !important; line-height: 1.75;
 }
+.gate-why {
+  font-size: 12px; color: var(--ink-3); line-height: 1.7;
+  background: var(--surface-2); border-radius: 8px; padding: 9px 11px;
+  margin: -6px 0 16px !important;
+}
+.gate-why:empty { display: none; }
 .gate-err {
   font-size: 12.5px; color: var(--crit-text); margin: 14px 0 0 !important;
 }
@@ -590,6 +596,20 @@ details.tableview > div { margin-top: 8px; }
   background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--accent); font: inherit; text-decoration: underline;
 }
+
+/* ---------- 控えを見せているときの帯 ---------- */
+#stale {
+  position: fixed; left: 0; right: 0; z-index: 25;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 14px;
+  background: var(--warn-soft, #fff7e6);
+  border-top: 1px solid var(--border);
+  font-size: 12.5px; color: var(--ink-2);
+}
+#stale[hidden] { display: none; }
+#stale .btn { margin-left: auto; }
+@media (min-width: 701px) { #stale { bottom: 0; } }
 </style>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -781,8 +801,12 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const LS = {
   clientId: 'saimu.clientId',
   fileId:   'saimu.fileId',
-  token:    'saimu.token'
+  token:    'saimu.token',
+  cache:    'saimu.cache'
 };
+
+/** なぜログインが要るのかを画面で説明するために覚えておく。 */
+let authReason = 'none';
 
 /* ---------- 表の形 ---------- */
 
@@ -887,16 +911,47 @@ function forgetToken() {
 function recallToken() {
   try {
     const raw = localStorage.getItem(LS.token);
-    if (!raw) return false;
+    if (!raw) { authReason = 'none'; return false; }
     const v = JSON.parse(raw);
     // 期限ぎりぎりのものは使わない。操作の途中で切れる方が困る。
     if (v && v.t && v.e > Date.now() + 120000) {
       accessToken = v.t; tokenExpires = v.e;
+      authReason = 'ok';
       return true;
     }
-  } catch (e) { /* 壊れていたら捨てる */ }
+    authReason = 'expired';
+  } catch (e) { authReason = 'broken'; }
   forgetToken();
   return false;
+}
+
+/* ---------- 手元の控え ---------- */
+
+/**
+ * 最後に読んだ内容をこの端末に控えておく。
+ * 開いた瞬間に前回の数字を出せるので、「見るだけ」ならログインが要らない。
+ * アクセストークンは1時間で切れる短命な鍵で、ブラウザだけで動く作りでは
+ * 長期の更新鍵をもらえない。だから残高を見るたびにログイン、を避けるには
+ * 手元に控えておくしかない。
+ */
+function saveCache(state) {
+  try {
+    localStorage.setItem(LS.cache, JSON.stringify({ fileId, at: Date.now(), state }));
+  } catch (e) { /* 容量超過などは無視。次の同期でまた試す */ }
+}
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(LS.cache);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v || !v.state) return null;
+    // 別のファイルを開いている控えは使わない
+    if (v.fileId && fileId && v.fileId !== fileId) return null;
+    return v;
+  } catch (e) { return null; }
+}
+function clearCache() {
+  try { localStorage.removeItem(LS.cache); } catch (e) {}
 }
 recallToken();
 
@@ -950,6 +1005,7 @@ function signOut() {
     try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
   }
   forgetToken();
+  clearCache();
   localStorage.removeItem(LS.fileId);
 }
 
@@ -966,6 +1022,7 @@ async function gapi(url, opts) {
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   if (res.status === 401) {          // トークンが切れていた。取り直して1度だけやり直す。
+    authReason = 'rejected';
     forgetToken();
     const fresh = await getToken(false);
     const retry = await fetch(url, {
@@ -1556,6 +1613,7 @@ async function api(path, method, body) {
     try {
       fn();
       await writeAll(mem);
+      saveCache(mem);                  // 手元の控えも最新にする
     } catch (e) {
       mem = JSON.parse(before);        // 書けなかったら手元も元に戻す
       throw e;
@@ -1661,6 +1719,13 @@ function showGate(mode, detail) {
         <h1>ログイン</h1>
         <p>あなたの Google ドライブにある<b>あなた自身のデータ</b>だけを開きます。
            他の人のデータは見えませんし、あなたのデータも他の人には見えません。</p>
+        <p class="gate-why">${{
+          none:     'この端末にログインの記録がありません。初回か、ブラウザの保存領域が消えた場合です。',
+          expired:  '前回の許可が期限切れです（1時間で切れます）。ブラウザだけで動く作りのため、長期の更新鍵は受け取れません。',
+          broken:   'この端末に保存された情報が読めませんでした。入り直してください。',
+          rejected: 'Google に許可を取り消されました。もう一度ログインしてください。',
+          ok:       ''
+        }[authReason] || ''}</p>
         <button class="btn primary" id="gate-in">Google でログイン</button>
         ${detail ? `<p class="gate-err">${esc(detail)}</p>` : ''}
         <p class="gate-note">
@@ -1716,12 +1781,26 @@ async function afterSignIn() {
   // 取り直しのポップアップを毎回出してしまう。メール表示のために払う代償ではない。
   await ensureFile();
   mem = await readAll();
+  saveCache(mem);                     // 次に開いたときログイン無しで見られるように
   dbStats = await api('/stats');
   adopt(await api('/state'));
   online = true;
   hideGate();
+  hideStaleBanner();
   render();
-  toast('あなたのスプレッドシートを開きました');
+}
+
+/** 手元の控えを画面に出す。ログインしていなくても前回の数字が見られる。 */
+function showCached() {
+  const c = loadCache();
+  if (!c) return null;
+  mem = c.state;
+  adopt(derive(mem));
+  online = false;
+  hideGate();
+  render();
+  showStaleBanner(c.at);
+  return c;
 }
 
 async function boot() {
@@ -1729,28 +1808,70 @@ async function boot() {
   mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
-  render();
 
-  if (!clientId) { showGate(); return; }
+  if (!clientId) { render(); showGate(); return; }
 
-  // 期限内の鍵を覚えていれば、Google には一切問い合わせずそのまま開く。
-  // 再読み込みのたびにログインが出るのを防ぐのはここ。
+  // まず手元の控えを出す。残高を見るだけならこれで足りるので、
+  // アクセストークンが切れていてもログイン画面で止めない。
+  const cached = showCached();
+  if (!cached) render();
+
+  // 期限内の鍵があれば、Google に問い合わせずそのまま最新に合わせる。
   if (hasLiveToken()) {
     try {
       await afterSignIn();
       return;
     } catch (e) {
-      forgetToken();                    // 鍵が通らなかった（失効・取り消し）
+      // 通信の失敗と、鍵が拒否されたのは別物。拒否でなければ鍵は捨てない。
+      if (authReason !== 'rejected') {
+        if (cached) { showStaleBanner(cached.at, e.message); return; }
+      } else {
+        forgetToken();
+      }
     }
   }
 
-  // 鍵が無い・切れている場合だけ取り直す。同意済みなら画面は出ない。
+  // 鍵が無い・切れている。控えがあるならそれを見せたまま、静かに取り直しを試す。
   try {
     await getToken(false);
     await afterSignIn();
   } catch (e) {
-    showGate('in');
+    if (cached) showStaleBanner(cached.at, 'ログインすると最新に更新できます');
+    else showGate('in');
   }
+}
+
+/** 控えを見せているときの帯。いつ時点の数字かと、更新の手立てを出す。 */
+function showStaleBanner(at, note) {
+  const d = new Date(at);
+  const stamp = (d.getMonth() + 1) + '月' + d.getDate() + '日 ' +
+                String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  let bar = document.getElementById('stale');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'stale';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML =
+    `<span>この端末に保存された <b>${stamp}</b> 時点の内容です${note ? '（' + esc(note) + '）' : ''}</span>
+     <button class="btn sm primary" id="stale-sync">最新にする</button>`;
+  bar.hidden = false;
+  document.getElementById('stale-sync').addEventListener('click', async () => {
+    const b = document.getElementById('stale-sync');
+    b.disabled = true; b.textContent = '更新中…';
+    try {
+      await getToken(true);
+      await afterSignIn();
+      hideStaleBanner();
+    } catch (e) {
+      b.disabled = false; b.textContent = '最新にする';
+      toast(e.message || '更新できませんでした');
+    }
+  });
+}
+function hideStaleBanner() {
+  const bar = document.getElementById('stale');
+  if (bar) bar.hidden = true;
 }
 
 /** ヘッダのアカウント表示から呼ぶ。 */

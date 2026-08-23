@@ -23,6 +23,13 @@ function showGate(mode, detail) {
         <h1>ログイン</h1>
         <p>あなたの Google ドライブにある<b>あなた自身のデータ</b>だけを開きます。
            他の人のデータは見えませんし、あなたのデータも他の人には見えません。</p>
+        <p class="gate-why">${{
+          none:     'この端末にログインの記録がありません。初回か、ブラウザの保存領域が消えた場合です。',
+          expired:  '前回の許可が期限切れです（1時間で切れます）。ブラウザだけで動く作りのため、長期の更新鍵は受け取れません。',
+          broken:   'この端末に保存された情報が読めませんでした。入り直してください。',
+          rejected: 'Google に許可を取り消されました。もう一度ログインしてください。',
+          ok:       ''
+        }[authReason] || ''}</p>
         <button class="btn primary" id="gate-in">Google でログイン</button>
         ${detail ? `<p class="gate-err">${esc(detail)}</p>` : ''}
         <p class="gate-note">
@@ -78,12 +85,26 @@ async function afterSignIn() {
   // 取り直しのポップアップを毎回出してしまう。メール表示のために払う代償ではない。
   await ensureFile();
   mem = await readAll();
+  saveCache(mem);                     // 次に開いたときログイン無しで見られるように
   dbStats = await api('/stats');
   adopt(await api('/state'));
   online = true;
   hideGate();
+  hideStaleBanner();
   render();
-  toast('あなたのスプレッドシートを開きました');
+}
+
+/** 手元の控えを画面に出す。ログインしていなくても前回の数字が見られる。 */
+function showCached() {
+  const c = loadCache();
+  if (!c) return null;
+  mem = c.state;
+  adopt(derive(mem));
+  online = false;
+  hideGate();
+  render();
+  showStaleBanner(c.at);
+  return c;
 }
 
 async function boot() {
@@ -91,28 +112,70 @@ async function boot() {
   mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
-  render();
 
-  if (!clientId) { showGate(); return; }
+  if (!clientId) { render(); showGate(); return; }
 
-  // 期限内の鍵を覚えていれば、Google には一切問い合わせずそのまま開く。
-  // 再読み込みのたびにログインが出るのを防ぐのはここ。
+  // まず手元の控えを出す。残高を見るだけならこれで足りるので、
+  // アクセストークンが切れていてもログイン画面で止めない。
+  const cached = showCached();
+  if (!cached) render();
+
+  // 期限内の鍵があれば、Google に問い合わせずそのまま最新に合わせる。
   if (hasLiveToken()) {
     try {
       await afterSignIn();
       return;
     } catch (e) {
-      forgetToken();                    // 鍵が通らなかった（失効・取り消し）
+      // 通信の失敗と、鍵が拒否されたのは別物。拒否でなければ鍵は捨てない。
+      if (authReason !== 'rejected') {
+        if (cached) { showStaleBanner(cached.at, e.message); return; }
+      } else {
+        forgetToken();
+      }
     }
   }
 
-  // 鍵が無い・切れている場合だけ取り直す。同意済みなら画面は出ない。
+  // 鍵が無い・切れている。控えがあるならそれを見せたまま、静かに取り直しを試す。
   try {
     await getToken(false);
     await afterSignIn();
   } catch (e) {
-    showGate('in');
+    if (cached) showStaleBanner(cached.at, 'ログインすると最新に更新できます');
+    else showGate('in');
   }
+}
+
+/** 控えを見せているときの帯。いつ時点の数字かと、更新の手立てを出す。 */
+function showStaleBanner(at, note) {
+  const d = new Date(at);
+  const stamp = (d.getMonth() + 1) + '月' + d.getDate() + '日 ' +
+                String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  let bar = document.getElementById('stale');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'stale';
+    document.body.appendChild(bar);
+  }
+  bar.innerHTML =
+    `<span>この端末に保存された <b>${stamp}</b> 時点の内容です${note ? '（' + esc(note) + '）' : ''}</span>
+     <button class="btn sm primary" id="stale-sync">最新にする</button>`;
+  bar.hidden = false;
+  document.getElementById('stale-sync').addEventListener('click', async () => {
+    const b = document.getElementById('stale-sync');
+    b.disabled = true; b.textContent = '更新中…';
+    try {
+      await getToken(true);
+      await afterSignIn();
+      hideStaleBanner();
+    } catch (e) {
+      b.disabled = false; b.textContent = '最新にする';
+      toast(e.message || '更新できませんでした');
+    }
+  });
+}
+function hideStaleBanner() {
+  const bar = document.getElementById('stale');
+  if (bar) bar.hidden = true;
 }
 
 /** ヘッダのアカウント表示から呼ぶ。 */

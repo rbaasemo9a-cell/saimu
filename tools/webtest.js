@@ -66,7 +66,26 @@ ok('期限内の鍵があれば Google に問い合わせない', /if \(hasLiveT
 ok('期限ぎりぎりの鍵は使わない', /Date\.now\(\) \+ 120000/.test(app));
 ok('同意画面を毎回は強制しない', !app.includes("prompt: 'consent'"));
 ok('ログアウトで覚えた鍵を消す', /function signOut[\s\S]{0,200}forgetToken\(\)/.test(app));
-ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,120}forgetToken\(\)/.test(app));
+ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,160}forgetToken\(\)/.test(app));
+
+/*
+ * ログインの回数を減らす作り。トークンは1時間で切れ、ブラウザだけでは
+ * 長期の更新鍵をもらえない。だから「見るだけ」は控えで済ませる。
+ */
+{
+  ok('読み込んだ内容を端末に控える', /function saveCache/.test(app) && /function loadCache/.test(app));
+  ok('開いたらまず控えを出す', /function showCached/.test(app) && /const cached = showCached\(\)/.test(app));
+  ok('控えがあればログイン画面で止めない',
+    /if \(cached\) showStaleBanner\(cached\.at/.test(app));
+  ok('いつ時点かを帯で知らせる', /function showStaleBanner/.test(app));
+  ok('書き込んだら控えも更新する', /await writeAll\(mem\);[\s\S]{0,40}saveCache\(mem\);/.test(app));
+  ok('ログアウトで控えも消す', /function signOut[\s\S]{0,220}clearCache\(\)/.test(app));
+  // 通信の失敗で有効な鍵を捨てない（捨てると次回また必ずログインになる）
+  ok('拒否されたときだけ鍵を捨てる',
+    /authReason !== 'rejected'[\s\S]{0,220}forgetToken\(\)/.test(app));
+  ok('ログインが要る理由を画面に出す',
+    app.includes('gate-why') && /expired:/.test(app) && /rejected:/.test(app));
+}
 
 /*
  * 権限外のエンドポイントを叩かないこと。

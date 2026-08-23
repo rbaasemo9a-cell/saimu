@@ -28,6 +28,12 @@
 .gate-note {
   font-size: 11.5px; color: var(--ink-3); margin: 16px 0 0 !important; line-height: 1.75;
 }
+.gate-why {
+  font-size: 12px; color: var(--ink-3); line-height: 1.7;
+  background: var(--surface-2); border-radius: 8px; padding: 9px 11px;
+  margin: -6px 0 16px !important;
+}
+.gate-why:empty { display: none; }
 .gate-err {
   font-size: 12.5px; color: var(--crit-text); margin: 14px 0 0 !important;
 }
@@ -35,3 +41,17 @@
   background: none; border: 0; padding: 0; cursor: pointer;
   color: var(--accent); font: inherit; text-decoration: underline;
 }
+
+/* ---------- 控えを見せているときの帯 ---------- */
+#stale {
+  position: fixed; left: 0; right: 0; z-index: 25;
+  bottom: calc(58px + env(safe-area-inset-bottom));
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 14px;
+  background: var(--warn-soft, #fff7e6);
+  border-top: 1px solid var(--border);
+  font-size: 12.5px; color: var(--ink-2);
+}
+#stale[hidden] { display: none; }
+#stale .btn { margin-left: auto; }
+@media (min-width: 701px) { #stale { bottom: 0; } }

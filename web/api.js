@@ -381,6 +381,7 @@ async function api(path, method, body) {
     try {
       fn();
       await writeAll(mem);
+      saveCache(mem);                  // 手元の控えも最新にする
     } catch (e) {
       mem = JSON.parse(before);        // 書けなかったら手元も元に戻す
       throw e;

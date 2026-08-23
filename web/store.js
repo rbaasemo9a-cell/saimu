@@ -18,8 +18,12 @@ const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
 const LS = {
   clientId: 'saimu.clientId',
   fileId:   'saimu.fileId',
-  token:    'saimu.token'
+  token:    'saimu.token',
+  cache:    'saimu.cache'
 };
+
+/** なぜログインが要るのかを画面で説明するために覚えておく。 */
+let authReason = 'none';
 
 /* ---------- 表の形 ---------- */
 
@@ -124,16 +128,47 @@ function forgetToken() {
 function recallToken() {
   try {
     const raw = localStorage.getItem(LS.token);
-    if (!raw) return false;
+    if (!raw) { authReason = 'none'; return false; }
     const v = JSON.parse(raw);
     // 期限ぎりぎりのものは使わない。操作の途中で切れる方が困る。
     if (v && v.t && v.e > Date.now() + 120000) {
       accessToken = v.t; tokenExpires = v.e;
+      authReason = 'ok';
       return true;
     }
-  } catch (e) { /* 壊れていたら捨てる */ }
+    authReason = 'expired';
+  } catch (e) { authReason = 'broken'; }
   forgetToken();
   return false;
+}
+
+/* ---------- 手元の控え ---------- */
+
+/**
+ * 最後に読んだ内容をこの端末に控えておく。
+ * 開いた瞬間に前回の数字を出せるので、「見るだけ」ならログインが要らない。
+ * アクセストークンは1時間で切れる短命な鍵で、ブラウザだけで動く作りでは
+ * 長期の更新鍵をもらえない。だから残高を見るたびにログイン、を避けるには
+ * 手元に控えておくしかない。
+ */
+function saveCache(state) {
+  try {
+    localStorage.setItem(LS.cache, JSON.stringify({ fileId, at: Date.now(), state }));
+  } catch (e) { /* 容量超過などは無視。次の同期でまた試す */ }
+}
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(LS.cache);
+    if (!raw) return null;
+    const v = JSON.parse(raw);
+    if (!v || !v.state) return null;
+    // 別のファイルを開いている控えは使わない
+    if (v.fileId && fileId && v.fileId !== fileId) return null;
+    return v;
+  } catch (e) { return null; }
+}
+function clearCache() {
+  try { localStorage.removeItem(LS.cache); } catch (e) {}
 }
 recallToken();
 
@@ -187,6 +222,7 @@ function signOut() {
     try { google.accounts.oauth2.revoke(accessToken); } catch (e) { /* 失効済みなら何もしない */ }
   }
   forgetToken();
+  clearCache();
   localStorage.removeItem(LS.fileId);
 }
 
@@ -203,6 +239,7 @@ async function gapi(url, opts) {
     body: opts.body ? JSON.stringify(opts.body) : undefined
   });
   if (res.status === 401) {          // トークンが切れていた。取り直して1度だけやり直す。
+    authReason = 'rejected';
     forgetToken();
     const fresh = await getToken(false);
     const retry = await fetch(url, {
