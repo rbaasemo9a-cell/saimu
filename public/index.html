@@ -632,9 +632,10 @@ details.tableview > div { margin-top: 8px; }
   const MAXM = 600;                       // シミュレーション上限 (50年)
   const NS = 'http://www.w3.org/2000/svg';
 
-  const INCOME_CATS  = ['給与', '賞与', '副業', '事業', '年金・給付', 'その他収入'];
+  const INCOME_CATS  = ['給与', '賞与', '配達（現金回収）', '副業', '事業', '年金・給付', 'その他収入'];
   const EXPENSE_CATS = ['住居', '食費', '水道光熱', '通信', '交通', '保険', '医療',
-                        '日用品', '被服', '教育', '交際費', '娯楽', 'その他支出'];
+                        '日用品', '被服', '教育', '交際費', '娯楽',
+                        '預かり金の返却', 'その他支出'];
 
   const yen  = n => '¥' + Math.round(n).toLocaleString('ja-JP');
   const yen0 = n => Math.round(n).toLocaleString('ja-JP');
@@ -927,6 +928,18 @@ details.tableview > div { margin-top: 8px; }
       .reduce((s, r) => s + r.amount, 0);
     return { key, income, expense, expensePaid, deferred, repay,
              net: income - expensePaid - repay };
+  }
+
+  /**
+   * 翌月に確定している引落。今月の手元にお金があっても、この分は既に他人のものなので
+   * 使ってはいけない。現金回収の仕事だと手元の現金と口座の引落がずれるため、
+   * これを見せないと「使い切って翌月払えない」が起きる。
+   */
+  function committedNext(key) {
+    const nextKey = addMonthKey(key, 1);
+    return state.txns
+      .filter(t => t.type === 'expense' && payMonthOf(t) === nextKey && monthKey(t.date) <= key)
+      .reduce((s, t) => s + t.amount, 0);
   }
 
   /** その月に引き落とされる額のうち、前の月までに使った分（＝カード払いの繰越）。 */
@@ -1379,6 +1392,12 @@ details.tableview > div { margin-top: 8px; }
         alerts.push(`<div class="callout crit">${ICON.crit}<div><b>${esc(d.name)}</b> は最低返済額（${yen(d.minPayment)}）が毎月の利息（${yen(monthlyInterest(d))}）を下回っています。このままでは残高が減りません。返済額を増やすか、借り換えを検討してください。</div></div>`);
       }
     });
+    const committed = committedNext(mk);
+    if (committed > 0 && ms.net - committed < 0) {
+      alerts.push(`<div class="callout crit">${ICON.crit}<div>来月の引落 <b>${yen(committed)}</b> が確定していますが、今月の余力は <b>${yen(ms.net)}</b> しかありません。<b>${yen(committed - ms.net)}</b> 不足します。手元の現金を使う前に取り置いてください。</div></div>`);
+    } else if (committed > 0) {
+      alerts.push(`<div class="callout warn">${ICON.warn}<div>来月の引落として <b>${yen(committed)}</b> が確定しています。今月まだ使ってよいのは <b>${yen(ms.net - committed)}</b> です。</div></div>`);
+    }
     if (budget < sumMin) {
       alerts.push(`<div class="callout warn">${ICON.warn}<div>予定している月々の返済額 <b>${yen(budget)}</b> が、最低返済額の合計 <b>${yen(sumMin)}</b> に届いていません。目標画面で返済額を見直してください。</div></div>`);
     }
@@ -1615,6 +1634,7 @@ details.tableview > div { margin-top: 8px; }
     const carried = carriedInto(cashMonth);
     const nextKey = addMonthKey(cashMonth, 1);
     const nextS = monthSummary(nextKey);
+    const committed = committedNext(cashMonth);
 
     root.innerHTML =
       headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。カード払いは<b>口座から出ていく月</b>で数えるので、<b>収入 − 引落 − 返済 = 返済に回せる余力</b>が実態どおりになります。') +
@@ -1636,8 +1656,20 @@ details.tableview > div { margin-top: 8px; }
          <div class="tile"><span class="tile-label">返済</span><span class="tile-value">${yen(s.repay)}</span>
            <span class="tile-delta">${repRows.length}件の記録</span></div>
          <div class="tile"><span class="tile-label">残り（貯蓄・繰上返済の余力）</span>
-           <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span></div>
+           <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span>
+           ${committed > 0 ? `<span class="tile-delta">取り置き後 <b class="num">${yen(s.net - committed)}</b></span>` : ''}</div>
        </div>
+
+       ${committed > 0 ? `
+       <div class="callout ${s.net - committed < 0 ? 'crit' : 'warn'}" style="margin-top:16px">
+         ${s.net - committed < 0 ? ICON.crit : ICON.warn}<div>
+         来月の引落として <b>${yen(committed)}</b> が既に確定しています。
+         手元にお金があっても、この分は取り置いてください。
+         <b>今月まだ使ってよいのは ${yen(Math.max(0, s.net - committed))}</b> です。
+         ${s.net - committed < 0
+           ? `<br>このままだと来月の引落に <b>${yen(committed - s.net)}</b> 足りません。`
+           : ''}
+       </div></div>` : ''}
 
        ${s.deferred > 0 || nextS.expensePaid > 0 ? `
        <div class="callout info" style="margin-top:16px">${ICON.info}<div>

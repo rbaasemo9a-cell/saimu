@@ -267,16 +267,20 @@ console.log('\n返済シミュレーション');
 
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
 const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
-function grab(name) {
-  const i = src.indexOf('function ' + name + '(');
-  if (i < 0) throw new Error('見つかりません: ' + name);
-  let depth = 0, started = false;
-  for (let j = i; j < src.length; j++) {
-    if (src[j] === '{') { depth++; started = true; }
-    else if (src[j] === '}') { depth--; if (started && depth === 0) return src.slice(i, j + 1); }
+  /** 画面のコードから1つの定義を切り出す。kind='const' なら const 宣言を拾う。 */
+  function grab(name, kind) {
+    const head = kind === 'const' ? 'const ' + name + ' = ' : 'function ' + name + '(';
+    const i = src.indexOf(head);
+    if (i < 0) throw new Error('見つかりません: ' + name);
+    let depth = 0, started = false;
+    for (let j = i; j < src.length; j++) {
+      if (src[j] === '{') { depth++; started = true; }
+      else if (src[j] === '}') { depth--; if (started && depth === 0) return src.slice(i, j + 1); }
+      // 本体が式だけの const（アロー関数など）は行末の ; で終わる
+      else if (src[j] === ';' && !started && kind === 'const') return src.slice(i, j + 1);
+    }
+    throw new Error('括弧が閉じていません: ' + name);
   }
-  throw new Error('括弧が閉じていません: ' + name);
-}
 
 const MAXM = 600;
 const DAY_BASIS = 365;
@@ -372,7 +376,65 @@ state.debts = [
     got != null && got <= tm && (less == null || less > tm - 1));
 });
 
-state.debts = [];
+/* ---------- 現金回収の仕事（Uber Eats など） ---------- */
+console.log('\n現金回収と取り置き');
+{
+  // 画面側の集計関数は state を直接読むので、state ごと閉じ込めて取り出す
+  const F = new Function([
+    'let state;',
+    grab('monthKey', 'const'),
+    grab('payMonthOf', 'const'),
+    grab('addMonthKey'),
+    grab('monthSummary'),
+    grab('committedNext'),
+    'return { set: s => { state = s; }, monthKey, payMonthOf, addMonthKey,',
+    '         monthSummary, committedNext };'
+  ].join(String.fromCharCode(10)))();
+  const { monthKey, payMonthOf, addMonthKey, monthSummary, committedNext } = F;
+
+  // 現金で30,000回収し、報酬12,000を差し引いた18,000をカードで返す。
+  state = { debts: [], repayments: [], txns: [
+    { id: 'a', type: 'income',  date: '2026-08-20', amount: 30000,
+      category: '配達（現金回収）', payMonth: '2026-08' },
+    { id: 'b', type: 'expense', date: '2026-08-22', amount: 18000,
+      category: '預かり金の返却', payMonth: '2026-09' }
+  ] };
+  F.set(state);
+
+  const aug = monthSummary('2026-08');
+  const sep = monthSummary('2026-09');
+  const hold = committedNext('2026-08');
+
+  ok('回収した月は収入がそのまま立つ', aug.income === 30000, String(aug.income));
+  ok('カードで返す分は当月の引落に入らない', aug.expensePaid === 0, String(aug.expensePaid));
+  ok('返す分は翌月の引落になる', sep.expensePaid === 18000, String(sep.expensePaid));
+  ok('翌月に確定している引落を取り置きとして拾える', hold === 18000, String(hold));
+  ok('取り置き後の手取りが配達報酬と一致する',
+    aug.net - hold === 12000, `${aug.net} - ${hold} = ${aug.net - hold}`);
+  ok('回収と返却は年間で相殺される',
+    (aug.income - aug.expensePaid) + (sep.income - sep.expensePaid) === 12000);
+
+  // 取り置きが足りないと分かること（使い切ってしまった場合）
+  state.txns.push({ id: 'c', type: 'expense', date: '2026-08-25', amount: 25000,
+                    category: '食費', payMonth: '2026-08' });
+  F.set(state);
+  const tight = monthSummary('2026-08');
+  ok('使いすぎると翌月の引落に足りないと分かる',
+    tight.net - committedNext('2026-08') < 0,
+    `余力 ${tight.net} - 取り置き ${committedNext('2026-08')}`);
+
+  // 引落月を持たない古い記録は、利用月に出ていったものとして扱う
+  state = { debts: [], repayments: [], txns: [
+    { id: 'd', type: 'expense', date: '2026-08-05', amount: 5000, category: '食費' }
+  ] };
+  F.set(state);
+  ok('引落月が無い記録は利用月の引落として数える',
+    monthSummary('2026-08').expensePaid === 5000 && payMonthOf(state.txns[0]) === '2026-08');
+  ok('月キーの加算はフロント側も年をまたげる',
+    addMonthKey('2026-12', 1) === '2027-01' && addMonthKey('2026-01', -1) === '2025-12');
+}
+
+state = { debts: [] };
 ok('借入なし → 0ヶ月', simulate(50000, 'avalanche').payoffMonths === 0);
 
 state.debts = [
