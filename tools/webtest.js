@@ -89,6 +89,51 @@ ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,120}
   ok('権限外の userinfo を叩いていない', !app.includes('oauth2/v3/userinfo'));
 }
 
+/*
+ * 列を足しても既存のシートが壊れないこと。
+ * debts の途中に起点の3列を入れたとき、位置決め打ちで読んでいたせいで
+ * 年利と最低返済額が 0 になった。見出しで対応づけるようにして直した。
+ */
+console.log('\n古いシートとの互換');
+{
+  const L2 = new Function([
+    "const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;",
+    grab('toNum', 'const'),
+    grab('TABLES', 'const'),
+    grab('NUMERIC', 'const'),
+    grab('rowsToObjects'),
+    'return { rowsToObjects, TABLES };'
+  ].join(String.fromCharCode(10)))();
+
+  ok('見出しで対応づけている（位置決め打ちでない）',
+    /header\.findIndex/.test(app) && !/cols\.forEach\(\(c, i\) => \{\s*const raw = row\[i\]/.test(app));
+
+  // 起点の3列が無い、古い debts シート
+  const oldRows = [
+    ['id', 'name', 'principal', 'interestAccrued', 'accruedAt', 'initial', 'rate', 'minPayment', 'createdAt'],
+    ['d1', '銀行カードローン', '1216519', '12565', '2026-07-27', '1500000', '14.5', '30000', '2026-01-01']
+  ];
+  const r = L2.rowsToObjects('debts', oldRows)[0];
+  ok('古いシートでも年利が読める', r.rate === 14.5, String(r.rate));
+  ok('古いシートでも最低返済額が読める', r.minPayment === 30000, String(r.minPayment));
+  ok('古いシートでも当初借入額が読める', r.initial === 1500000, String(r.initial));
+  ok('古いシートでも元金が読める', r.principal === 1216519, String(r.principal));
+  ok('無い列は空になるだけ', r.originDate === '' && r.originPrincipal === 0);
+
+  // 列の順番を入れ替えたシートでも読める
+  const shuffled = [
+    ['name', 'id', 'rate', 'principal', 'minPayment'],
+    ['カードローン', 'd9', '15', '500000', '20000']
+  ];
+  const s2 = L2.rowsToObjects('debts', shuffled)[0];
+  ok('列の順番が違っても見出しで引ける',
+    s2.name === 'カードローン' && s2.rate === 15 && s2.principal === 500000,
+    JSON.stringify(s2));
+
+  ok('読み込み時に起点を補完する',
+    /originDate = ISO_DATE\.test\(d\.accruedAt/.test(app));
+}
+
 /* ==========================================================
    2. データ層のロジック
    ========================================================== */

@@ -291,14 +291,29 @@ async function loadSheetIds() {
 const colLetter = n => String.fromCharCode(64 + n);
 const rangeOf = t => `${t}!A1:${colLetter(TABLES[t].length)}`;
 
+/**
+ * 行を項目に組み直す。**1行目の見出しを見て対応づける。**
+ *
+ * 位置で決め打つと、列を1つ足しただけで既存のシートが全部ずれる。
+ * 実際、debts の途中に起点の3列を入れたときに年利と最低返済額が消えた。
+ * 見出しで引けば、古いシートを開いても無い列が空になるだけで済む。
+ */
 function rowsToObjects(table, rows) {
   const cols = TABLES[table];
+  const header = (rows && rows[0]) || [];
+  const at = {};
+  cols.forEach(c => {
+    const i = header.findIndex(h => String(h ?? '').trim() === c);
+    // 見出しが無いシート（自分で作る前の手書きなど）だけ、並び順を頼りにする
+    at[c] = i >= 0 ? i : (header.length ? -1 : cols.indexOf(c));
+  });
+
   const out = [];
-  for (const row of (rows || []).slice(1)) {                 // 1行目は見出し
+  for (const row of (rows || []).slice(1)) {
     if (!row || row.every(c => String(c ?? '') === '')) continue;
     const o = {};
-    cols.forEach((c, i) => {
-      const raw = row[i];
+    cols.forEach(c => {
+      const raw = at[c] >= 0 ? row[at[c]] : undefined;
       o[c] = NUMERIC.has(c) ? toNum(raw) : String(raw ?? '');
     });
     out.push(o);
@@ -314,6 +329,17 @@ async function readAll() {
     const values = (got.valueRanges && got.valueRanges[i] && got.valueRanges[i].values) || [];
     rowCounts[t] = Math.max(0, values.length - 1);
     byTable[t] = rowsToObjects(t, values);
+  });
+
+  // 起点の列が無かった頃のシートを開いたとき。いまの状態をそのまま起点として補う。
+  // ここを空のままにすると、次の書き込みで元金0として保存され残高が消える。
+  byTable.debts.forEach(d => {
+    if (!ISO_DATE.test(d.originDate || '')) {
+      d.originDate = ISO_DATE.test(d.accruedAt || '') ? d.accruedAt : nowISO();
+      d.originPrincipal = d.principal;
+      d.originInterest = d.interestAccrued;
+    }
+    if (!(d.initial > 0)) d.initial = d.principal + d.interestAccrued;
   });
 
   const g = byTable.goals[0] || {};
