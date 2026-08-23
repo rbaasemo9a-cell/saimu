@@ -738,7 +738,7 @@ details.tableview > div { margin-top: 8px; }
      2. 状態と保存
      ========================================================== */
   const blank = () => ({
-    debts: [], txns: [], repayments: [], cards: [], cardBills: [],
+    debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
     goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 },
     v: 1
   });
@@ -787,6 +787,7 @@ const TABLES = {
   cards: ['id', 'name', 'createdAt'],
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
+  borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
@@ -1079,6 +1080,7 @@ async function readAll() {
     debts: byTable.debts,
     cards: byTable.cards,
     cardBills: byTable.cardBills,
+    borrows: byTable.borrows,
     txns: byTable.txns,
     repayments: byTable.repayments,
     goals: {
@@ -1094,7 +1096,7 @@ async function readAll() {
 async function writeAll(st) {
   const payload = {
     debts: st.debts, txns: st.txns, repayments: st.repayments,
-    cards: st.cards, cardBills: st.cardBills,
+    cards: st.cards, cardBills: st.cardBills, borrows: st.borrows,
     goals: [st.goals],
     meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
   };
@@ -1162,6 +1164,7 @@ function derive(st) {
     }),
     cards: st.cards.slice(),
     cardBills: st.cardBills.slice(),
+    borrows: st.borrows.slice(),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -1177,24 +1180,32 @@ const findDebt = id => mem.debts.find(d => d.id === id);
  * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
  */
 function rebuildDebt(d) {
-  const reps = mem.repayments
-    .filter(r => r.debtId === d.id && r.date >= d.originDate)
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
+  const events = [];
+  mem.borrows.filter(b => b.debtId === d.id && b.date >= d.originDate)
+    .forEach(b => events.push({ kind: 0, date: b.date, amount: b.amount, ref: b }));
+  mem.repayments.filter(r => r.debtId === d.id && r.date >= d.originDate)
+    .forEach(r => events.push({ kind: 1, date: r.date, amount: r.amount, ref: r }));
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind - b.kind) ||
+                        String(a.ref.id).localeCompare(String(b.ref.id)));
 
   let principal = d.originPrincipal;
   let interest = d.originInterest;
   let cursor = d.originDate;
 
-  for (const r of reps) {
-    interest += accrueOn(principal, d.rate, daysBetweenISO(cursor, r.date));
-    const paidInterest = Math.min(r.amount, interest);
-    const paidPrincipal = Math.min(r.amount - paidInterest, principal);
-    r.interest = paidInterest;
-    r.principal = paidPrincipal;
-    interest -= paidInterest;
-    principal -= paidPrincipal;
-    if (r.date > cursor) cursor = r.date;
+  for (const e of events) {
+    interest += accrueOn(principal, d.rate, daysBetweenISO(cursor, e.date));
+    if (e.kind === 0) {
+      principal += e.amount;                       // 追加で借りた
+    } else {
+      const paidInterest = Math.min(e.amount, interest);
+      const paidPrincipal = Math.min(e.amount - paidInterest, principal);
+      e.ref.interest = paidInterest;
+      e.ref.principal = paidPrincipal;
+      interest -= paidInterest;
+      principal -= paidPrincipal;
+    }
+    if (e.date > cursor) cursor = e.date;
   }
   d.principal = principal;
   d.interestAccrued = interest;
@@ -1228,6 +1239,7 @@ const MUT = {
   deleteDebt(id) {
     mem.debts = mem.debts.filter(d => d.id !== id);
     mem.repayments = mem.repayments.filter(r => r.debtId !== id);   // ON DELETE CASCADE の代わり
+    mem.borrows = mem.borrows.filter(b => b.debtId !== id);
   },
 
   addRepayment(b) {
@@ -1249,6 +1261,32 @@ const MUT = {
       interest: 0, principal: 0, memo: strOf(b.memo, 60)
     });
     rebuildDebt(d);
+  },
+
+  /** 追加で借りた記録。当初借入額も増やし、進捗率が借りた総額に対する割合になるようにする。 */
+  addBorrow(b) {
+    const d = findDebt(strOf(b.debtId, 40));
+    if (!d) throw new Refused('その借入は見つかりません');
+    const amount = toNum(b.amount);
+    if (!(amount > 0)) throw new Refused('借入額は1円以上で入力してください');
+    const date = dateOrDefault(b.date, nowISO());
+    if (d.originDate && date < d.originDate) {
+      throw new Refused(
+        `この借入は ${d.originDate} 時点の残高として登録されています。` +
+        `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
+        `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
+    }
+    mem.borrows.push({ id: newId(), debtId: d.id, date, amount, memo: strOf(b.memo, 60) });
+    d.initial += amount;
+    rebuildDebt(d);
+  },
+
+  deleteBorrow(id) {
+    const b = mem.borrows.find(x => x.id === id);
+    if (!b) return;
+    mem.borrows = mem.borrows.filter(x => x.id !== id);
+    const d = findDebt(b.debtId);
+    if (d) { d.initial = Math.max(0, d.initial - b.amount); rebuildDebt(d); }
   },
 
   deleteRepayment(id) {
@@ -1325,7 +1363,7 @@ const MUT = {
   },
 
   wipe() {
-    mem = { debts: [], txns: [], repayments: [], cards: [], cardBills: [],
+    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -1384,8 +1422,15 @@ const MUT = {
         memo: strOf(r.memo, 60)
       });
     }
+    const borrows = [];
+    for (const b of (p.borrows || [])) {
+      const amount = toNum(b.amount);
+      if (!(amount > 0) || !seen.has(strOf(b.debtId, 40))) continue;   // 宛先の無い記録は捨てる
+      borrows.push({ id: strOf(b.id, 40) || newId(), debtId: strOf(b.debtId, 40),
+                     date: dateOrDefault(b.date, nowISO()), amount, memo: strOf(b.memo, 60) });
+    }
     const g = p.goals || {};
-    mem = { debts, cards, cardBills, txns, repayments, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, borrows, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -1494,6 +1539,10 @@ async function api(path, method, body) {
     case 'repayments':
       if (m === 'POST')   return save(() => MUT.addRepayment(body));
       if (m === 'DELETE') return save(() => MUT.deleteRepayment(id));
+      break;
+    case 'borrows':
+      if (m === 'POST')   return save(() => MUT.addBorrow(body));
+      if (m === 'DELETE') return save(() => MUT.deleteBorrow(id));
       break;
     case 'txns':
       if (m === 'POST')   return save(() => MUT.addTxn(body));
@@ -1644,7 +1693,7 @@ async function afterSignIn() {
 
 async function boot() {
   online = false;
-  mem = { debts: [], txns: [], repayments: [], cards: [], cardBills: [],
+  mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
   render();
@@ -2544,13 +2593,18 @@ window.saimuSignOut = signOutAndReset;
         </div>
         <div class="debt-actions">
           <button class="btn sm primary" data-act="pay" data-id="${d.id}" ${cleared ? 'disabled' : ''}>返済を記録</button>
+          <button class="btn sm" data-act="borrow" data-id="${d.id}">追加で借りた</button>
           <button class="btn sm" data-act="edit-debt" data-id="${d.id}">編集</button>
           <button class="btn sm danger" data-act="del-debt" data-id="${d.id}">削除</button>
         </div>
       </div>`;
     }).join('');
 
-    const reps = [...state.repayments].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40);
+    // 返済と追加借入を1つの時間軸で見せる。残高が動いた理由が一覧で追える。
+    const moves = [
+      ...state.repayments.map(r => ({ ...r, kind: 'repay' })),
+      ...state.borrows.map(b => ({ ...b, kind: 'borrow' }))
+    ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40);
     const nameOf = id => (state.debts.find(d => d.id === id) || {}).name || '（削除済み）';
 
     root.innerHTML =
@@ -2566,20 +2620,23 @@ window.saimuSignOut = signOutAndReset;
              <button class="btn primary" data-act="add-debt">${ICON.plus}借入を追加</button></div>`) +
 
       `<div class="panel" style="margin-top:16px">
-         <div class="panel-head"><h2>返済の記録</h2><span class="hint">直近40件</span></div>
+         <div class="panel-head"><h2>返済・追加借入の記録</h2><span class="hint">直近40件</span></div>
          <div class="panel-body">
-           ${reps.length ? `<div class="table-wrap"><table class="ledger">
-             <thead><tr><th>日付</th><th>借入先</th><th class="r">返済額</th><th class="r">うち利息</th><th class="r">うち元金</th><th class="col-memo">メモ</th><th></th></tr></thead>
-             <tbody>${reps.map(r => `<tr>
+           ${moves.length ? `<div class="table-wrap"><table class="ledger">
+             <thead><tr><th>日付</th><th>区分</th><th>借入先</th><th class="r">金額</th><th class="r">うち利息</th><th class="r">うち元金</th><th class="col-memo">メモ</th><th></th></tr></thead>
+             <tbody>${moves.map(r => `<tr>
                <td class="r" style="text-align:left">${esc(r.date)}</td>
+               <td>${r.kind === 'borrow'
+                 ? '<span class="pill crit">借入</span>'
+                 : '<span class="pill flat">返済</span>'}</td>
                <td>${esc(nameOf(r.debtId))}</td>
-               <td class="r">${yen(r.amount)}</td>
-               <td class="r" style="color:var(--ink-2)">${yen(r.interest)}</td>
-               <td class="r ${r.principal < 0 ? 'amt-neg' : ''}">${yen(r.principal)}</td>
+               <td class="r ${r.kind === 'borrow' ? 'amt-neg' : ''}">${r.kind === 'borrow' ? '+' : ''}${yen(r.amount)}</td>
+               <td class="r" style="color:var(--ink-2)">${r.kind === 'borrow' ? '—' : yen(r.interest)}</td>
+               <td class="r">${r.kind === 'borrow' ? '—' : yen(r.principal)}</td>
                <td class="col-memo" style="color:var(--ink-2)">${esc(r.memo || '')}</td>
-               <td class="r"><button class="btn sm danger" data-act="del-rep" data-id="${r.id}">取消</button></td>
+               <td class="r"><button class="btn sm danger" data-act="${r.kind === 'borrow' ? 'del-borrow' : 'del-rep'}" data-id="${r.id}">取消</button></td>
              </tr>`).join('')}</tbody></table></div>`
-             : `<p style="color:var(--ink-3);font-size:13px">まだ返済の記録がありません。借入カードの「返済を記録」から登録してください。</p>`}
+             : `<p style="color:var(--ink-3);font-size:13px">まだ記録がありません。借入カードの「返済を記録」「追加で借りた」から登録してください。</p>`}
          </div>
        </div>`;
   };
@@ -3307,6 +3364,49 @@ window.saimuSignOut = signOutAndReset;
     });
   }
 
+  function borrowDialog(id) {
+    const d = state.debts.find(x => x.id === id);
+    if (!d) return;
+    openDialog({
+      title: '追加で借りた', ok: '記録する',
+      lede: `${d.name}（元金 ${yen(d.principal)}）　カードローンなどで、返済しながらまた借りたとき`,
+      body: `<div class="form-grid">
+        <div class="field"><label for="w-date">借りた日</label>
+          <input type="date" id="w-date" name="date" required value="${todayISO()}"></div>
+        <div class="field"><label for="w-amt">借りた金額（円）</label>
+          <input type="number" id="w-amt" name="amount" required min="1" step="1" placeholder="0"></div>
+        <div class="field full"><label for="w-memo">メモ</label>
+          <input type="text" id="w-memo" name="memo" maxlength="60" placeholder="任意"></div>
+        <div class="full"><div class="calc-note" id="w-calc"></div></div>
+      </div>`,
+      onOpen: () => {
+        const amtEl = document.getElementById('w-amt');
+        const calc = document.getElementById('w-calc');
+        const upd = () => {
+          const a = Math.max(0, +amtEl.value || 0);
+          calc.innerHTML =
+            `<div>借入後の元金 <b>${yen(d.principal + a)}</b></div>
+             <div>利息 <b>${yen(interestFor(d.principal + a, d.rate, 1))}</b>／日
+               <span style="color:var(--ink-3)">（いまは ${yen(interestFor(d.principal, d.rate, 1))}／日）</span></div>
+             <div style="color:var(--ink-3);margin-top:4px">当初の借入額にも足され、返済済みの割合はその分下がります。</div>`;
+        };
+        amtEl.addEventListener('input', upd);
+        upd();
+      },
+      onOk: fd => {
+        const amount = numOf(fd, 'amount');
+        if (amount <= 0) return false;
+        simExtra = null;
+        commit('/borrows', 'POST', {
+          debtId: d.id,
+          date: String(fd.get('date') || todayISO()),
+          amount,
+          memo: String(fd.get('memo') || '').trim()
+        }, '追加借入を記録しました');
+      }
+    });
+  }
+
   function txnDialog(type) {
     const cats = type === 'income' ? INCOME_CATS : EXPENSE_CATS;
     const label = type === 'income' ? '収入' : '支出';
@@ -3548,6 +3648,7 @@ window.saimuSignOut = signOutAndReset;
       case 'add-card':   cardDialog(null); break;
       case 'edit-card':  cardDialog(id); break;
       case 'card-bill':  cardBillDialog(id); break;
+      case 'borrow':     borrowDialog(id); break;
       case 'edit-goals': goalsDialog(); break;
       case 'export':     exportData(); break;
       case 'copy':       copyData(); break;
@@ -3564,6 +3665,14 @@ window.saimuSignOut = signOutAndReset;
           simExtra = null;
           commit('/debts/' + id, 'DELETE', undefined, '借入を削除しました');
         });
+        break;
+      }
+      case 'del-borrow': {
+        const b = state.borrows.find(x => x.id === id);
+        if (!b) break;
+        confirmDialog('追加借入を取り消す',
+          `${b.date} の ${yen(b.amount)} の借入を取り消し、残高と当初借入額を元に戻します。`,
+          () => { simExtra = null; commit('/borrows/' + id, 'DELETE', undefined, '追加借入を取り消しました'); });
         break;
       }
       case 'del-rep': {

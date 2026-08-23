@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS repayments (
   memo      TEXT NOT NULL DEFAULT ''
 );
 
+-- 追加で借りた記録。返済と同じ時間軸に並べ、日付順に再生して残高を組み立てる。
+CREATE TABLE IF NOT EXISTS borrows (
+  id      TEXT PRIMARY KEY,
+  debt_id TEXT NOT NULL REFERENCES debts(id) ON DELETE CASCADE,
+  date    TEXT NOT NULL,
+  amount  REAL NOT NULL CHECK(amount > 0),
+  memo    TEXT NOT NULL DEFAULT ''
+);
+
 -- 使っているクレジットカード
 CREATE TABLE IF NOT EXISTS cards (
   id         TEXT PRIMARY KEY,
@@ -245,8 +254,11 @@ const Q = {
   goals: db.prepare(`SELECT target_date AS targetDate, monthly_repay AS monthlyRepay,
                             emergency, emergency_current AS emergencyCurrent
                      FROM goals WHERE id = 1`),
+  borrows: db.prepare(`SELECT id, debt_id AS debtId, date, amount, memo
+                       FROM borrows ORDER BY date DESC, rowid DESC`),
   debt: db.prepare('SELECT * FROM debts WHERE id = ?'),
-  rep:  db.prepare('SELECT * FROM repayments WHERE id = ?')
+  rep:  db.prepare('SELECT * FROM repayments WHERE id = ?'),
+  borrow: db.prepare('SELECT * FROM borrows WHERE id = ?')
 };
 
 /**
@@ -272,6 +284,7 @@ function getState() {
     debts: Q.debts.all().map(d => asOfToday(d, today)),
     cards: Q.cards.all(),
     cardBills: Q.cardBills.all(),
+    borrows: Q.borrows.all(),
     txns: Q.txns.all(),
     repayments: Q.reps.all(),
     goals: Q.goals.get() || { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 }
@@ -352,23 +365,35 @@ function deleteDebt(id) {
 function rebuild(debtId) {
   const d = Q.debt.get(debtId);
   if (!d) return;
-  const reps = db.prepare(`SELECT id, date, amount FROM repayments
-                           WHERE debt_id = ? AND date >= ?
-                           ORDER BY date, rowid`).all(debtId, d.origin_date);
+
+  // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
+  const events = [];
+  db.prepare(`SELECT id, date, amount FROM borrows WHERE debt_id = ? AND date >= ?
+              ORDER BY date, rowid`).all(debtId, d.origin_date)
+    .forEach(b => events.push({ kind: 0, date: b.date, amount: b.amount, id: b.id }));
+  db.prepare(`SELECT id, date, amount FROM repayments WHERE debt_id = ? AND date >= ?
+              ORDER BY date, rowid`).all(debtId, d.origin_date)
+    .forEach(r => events.push({ kind: 1, date: r.date, amount: r.amount, id: r.id }));
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind - b.kind));
 
   let principal = d.origin_principal;
   let interest = d.origin_interest;
   let cursor = d.origin_date;
 
   const upd = db.prepare('UPDATE repayments SET interest = ?, principal = ? WHERE id = ?');
-  for (const r of reps) {
-    interest += principal * (d.rate / 100 / DAY_BASIS) * daysBetween(cursor, r.date);
-    const paidInterest = Math.min(r.amount, interest);
-    const paidPrincipal = Math.min(r.amount - paidInterest, principal);
-    upd.run(paidInterest, paidPrincipal, r.id);
-    interest -= paidInterest;
-    principal -= paidPrincipal;
-    if (r.date > cursor) cursor = r.date;
+  for (const e of events) {
+    // どちらの出来事でも、まずそこまでの利息を積む
+    interest += principal * (d.rate / 100 / DAY_BASIS) * daysBetween(cursor, e.date);
+    if (e.kind === 0) {
+      principal += e.amount;                       // 追加で借りた
+    } else {
+      const paidInterest = Math.min(e.amount, interest);
+      const paidPrincipal = Math.min(e.amount - paidInterest, principal);
+      upd.run(paidInterest, paidPrincipal, e.id);
+      interest -= paidInterest;
+      principal -= paidPrincipal;
+    }
+    if (e.date > cursor) cursor = e.date;
   }
 
   db.prepare('UPDATE debts SET principal=?, interest_accrued=?, accrued_at=? WHERE id=?')
@@ -401,6 +426,45 @@ function addRepayment(b) {
       .run(id, d.id, date, amount, str(b.memo, 60));
     rebuild(d.id);
     return id;
+  });
+}
+
+/**
+ * 追加で借りた記録。カードローンのように、返済しながらまた借りる形に対応する。
+ * 当初借入額も増やす。進捗率が「借りた総額のうちいくら返したか」を表すようにするため。
+ */
+function addBorrow(b) {
+  const d = Q.debt.get(str(b.debtId, 40));
+  if (!d) throw new BadRequest('その借入は見つかりません');
+  const amount = num(b.amount);
+  if (!(amount > 0)) throw new BadRequest('借入額は1円以上で入力してください');
+
+  const date = dateOr(b.date, localToday());
+  if (d.origin_date && date < d.origin_date) {
+    throw new BadRequest(
+      `この借入は ${d.origin_date} 時点の残高として登録されています。` +
+      `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
+      `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
+  }
+
+  return tx(() => {
+    const id = uid();
+    db.prepare('INSERT INTO borrows (id, debt_id, date, amount, memo) VALUES (?,?,?,?,?)')
+      .run(id, d.id, date, amount, str(b.memo, 60));
+    db.prepare('UPDATE debts SET initial = initial + ? WHERE id = ?').run(amount, d.id);
+    rebuild(d.id);
+    return id;
+  });
+}
+
+function deleteBorrow(id) {
+  const b = Q.borrow.get(id);
+  if (!b) return;
+  tx(() => {
+    db.prepare('DELETE FROM borrows WHERE id = ?').run(id);
+    db.prepare('UPDATE debts SET initial = MAX(0, initial - ?) WHERE id = ?')
+      .run(b.amount, b.debt_id);
+    rebuild(b.debt_id);
   });
 }
 
@@ -497,7 +561,8 @@ function setGoals(b) {
 
 function wipe() {
   tx(() => {
-    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts; DELETE FROM cards;');
+    db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
+             DELETE FROM debts; DELETE FROM cards;`);
     db.prepare(`UPDATE goals SET target_date='', monthly_repay=0, emergency=0, emergency_current=0
                 WHERE id=1`).run();
   });
@@ -507,7 +572,8 @@ function wipe() {
 function importState(p) {
   if (!p || !Array.isArray(p.debts)) throw new BadRequest('バックアップの形式が違います');
   tx(() => {
-    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts; DELETE FROM cards;');
+    db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
+             DELETE FROM debts; DELETE FROM cards;`);
 
     const insC = db.prepare('INSERT OR IGNORE INTO cards (id,name,created_at) VALUES (?,?,?)');
     const cardIds = new Set();
@@ -563,6 +629,15 @@ function importState(p) {
       if (!(amt > 0) || !seen.has(str(r.debtId, 40))) continue;   // 存在しない借入の記録は捨てる
       insR.run(str(r.id, 40) || uid(), str(r.debtId, 40), dateOr(r.date, localToday()),
                amt, Math.max(0, num(r.interest)), Math.max(0, num(r.principal)), str(r.memo, 60));
+    }
+
+    const insBo = db.prepare(`INSERT OR IGNORE INTO borrows (id,debt_id,date,amount,memo)
+                              VALUES (?,?,?,?,?)`);
+    for (const b of (p.borrows || [])) {
+      const amt = num(b.amount);
+      if (!(amt > 0) || !seen.has(str(b.debtId, 40))) continue;   // 宛先の無い記録は捨てる
+      insBo.run(str(b.id, 40) || uid(), str(b.debtId, 40), dateOr(b.date, localToday()),
+                amt, str(b.memo, 60));
     }
 
     const g = p.goals || {};
@@ -673,6 +748,7 @@ module.exports = {
   addCard, updateCard, deleteCard, setCardBill, deleteCardBill,
   addDebt, updateDebt, deleteDebt,
   addRepayment, deleteRepayment,
+  addBorrow, deleteBorrow,
   addTxn, deleteTxn,
   setGoals,
   wipe, importState, loadSample, backup

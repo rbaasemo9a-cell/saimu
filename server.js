@@ -217,6 +217,11 @@ async function api(req, res, pathname) {
       if (m === 'DELETE') { db.deleteRepayment(id); return ok(); }
       break;
 
+    case 'borrows':
+      if (m === 'POST')   { db.addBorrow(body); return ok(); }
+      if (m === 'DELETE') { db.deleteBorrow(id); return ok(); }
+      break;
+
     case 'txns':
       if (m === 'POST')   { db.addTxn(body); return ok(); }
       if (m === 'DELETE') { db.deleteTxn(id); return ok(); }

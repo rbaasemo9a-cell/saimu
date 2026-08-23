@@ -126,6 +126,65 @@ db.addRepayment({ debtId: d1, amount: 30000, date: '2026-01-31', memo: 'テス�
     JSON.parse(desc).reps.every(r => r[1] > 0), desc);
 }
 
+// 追加借入 — 返済と同じ時間軸に並べて日付順に再生する
+{
+  const mkDebt = () => db.addDebt({ name: 'カードローン', principal: 500000,
+                                    accruedAt: '2026-06-01', rate: 14.5, minPayment: 15000 });
+  const snap = id => {
+    const st = db.getState();
+    const d = st.debts.find(x => x.id === id);
+    return JSON.stringify({
+      p: Math.round(d.principal), i: Math.round(d.interestAccrued),
+      init: Math.round(d.initial), at: d.accruedAt,
+      reps: st.repayments.filter(r => r.debtId === id)
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(r => [r.date, Math.round(r.interest), Math.round(r.principal)])
+    });
+  };
+
+  const a = mkDebt();
+  db.addRepayment({ debtId: a, amount: 30000, date: '2026-07-01' });
+  db.addBorrow({ debtId: a, amount: 100000, date: '2026-08-01', memo: '急な出費' });
+  db.addRepayment({ debtId: a, amount: 30000, date: '2026-09-01' });
+  const asc = snap(a);
+
+  ok('追加借入を記録できる', db.getState().borrows.length === 1);
+  ok('追加借入で元金が増える', JSON.parse(asc).p > 500000 - 60000, asc);
+  ok('当初借入額にも足される', JSON.parse(asc).init === 600000, asc);
+
+  // 借入後の返済は、増えた元金に対する利息で計算される
+  const reps = JSON.parse(asc).reps;
+  ok('借入後の返済は利息が増える', reps[1][1] > reps[0][1],
+    `${reps[0][1]} → ${reps[1][1]}`);
+
+  // 入力順を変えても同じ
+  const b = mkDebt();
+  db.addRepayment({ debtId: b, amount: 30000, date: '2026-09-01' });
+  db.addBorrow({ debtId: b, amount: 100000, date: '2026-08-01' });
+  db.addRepayment({ debtId: b, amount: 30000, date: '2026-07-01' });
+  ok('借入を挟んでも入力順に左右されない',
+    snap(b).replace(/"name[^,]*,/, '') === asc.replace(/"name[^,]*,/, ''),
+    snap(b) + ' vs ' + asc);
+
+  // 取り消すと元に戻る
+  const bw = db.getState().borrows.find(x => x.debtId === a);
+  db.deleteBorrow(bw.id);
+  const after = findD(a);
+  ok('追加借入を取り消すと当初借入額も戻る', Math.round(after.initial) === 500000,
+    String(after.initial));
+
+  // 起点より前の借入は拒否
+  let msg = '';
+  try { db.addBorrow({ debtId: a, amount: 50000, date: '2026-05-01' }); }
+  catch (e) { msg = e.message; }
+  ok('起算日より前の追加借入は拒否される', msg.includes('2026-06-01'), msg);
+
+  // 借入を消すと追加借入も消える
+  db.deleteDebt(a);
+  db.deleteDebt(b);
+  ok('借入を消すと追加借入も消える (CASCADE)', db.getState().borrows.length === 0);
+}
+
 // 起点より前の返済は拒否する（申告した残高に既に含まれているため）
 {
   const dz = db.addDebt({ name: '起点あり', principal: 1000000, accruedAt: '2026-08-22',

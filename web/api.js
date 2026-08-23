@@ -22,6 +22,7 @@ function derive(st) {
     }),
     cards: st.cards.slice(),
     cardBills: st.cardBills.slice(),
+    borrows: st.borrows.slice(),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -37,24 +38,32 @@ const findDebt = id => mem.debts.find(d => d.id === id);
  * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
  */
 function rebuildDebt(d) {
-  const reps = mem.repayments
-    .filter(r => r.debtId === d.id && r.date >= d.originDate)
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
+  const events = [];
+  mem.borrows.filter(b => b.debtId === d.id && b.date >= d.originDate)
+    .forEach(b => events.push({ kind: 0, date: b.date, amount: b.amount, ref: b }));
+  mem.repayments.filter(r => r.debtId === d.id && r.date >= d.originDate)
+    .forEach(r => events.push({ kind: 1, date: r.date, amount: r.amount, ref: r }));
+  events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind - b.kind) ||
+                        String(a.ref.id).localeCompare(String(b.ref.id)));
 
   let principal = d.originPrincipal;
   let interest = d.originInterest;
   let cursor = d.originDate;
 
-  for (const r of reps) {
-    interest += accrueOn(principal, d.rate, daysBetweenISO(cursor, r.date));
-    const paidInterest = Math.min(r.amount, interest);
-    const paidPrincipal = Math.min(r.amount - paidInterest, principal);
-    r.interest = paidInterest;
-    r.principal = paidPrincipal;
-    interest -= paidInterest;
-    principal -= paidPrincipal;
-    if (r.date > cursor) cursor = r.date;
+  for (const e of events) {
+    interest += accrueOn(principal, d.rate, daysBetweenISO(cursor, e.date));
+    if (e.kind === 0) {
+      principal += e.amount;                       // 追加で借りた
+    } else {
+      const paidInterest = Math.min(e.amount, interest);
+      const paidPrincipal = Math.min(e.amount - paidInterest, principal);
+      e.ref.interest = paidInterest;
+      e.ref.principal = paidPrincipal;
+      interest -= paidInterest;
+      principal -= paidPrincipal;
+    }
+    if (e.date > cursor) cursor = e.date;
   }
   d.principal = principal;
   d.interestAccrued = interest;
@@ -88,6 +97,7 @@ const MUT = {
   deleteDebt(id) {
     mem.debts = mem.debts.filter(d => d.id !== id);
     mem.repayments = mem.repayments.filter(r => r.debtId !== id);   // ON DELETE CASCADE の代わり
+    mem.borrows = mem.borrows.filter(b => b.debtId !== id);
   },
 
   addRepayment(b) {
@@ -109,6 +119,32 @@ const MUT = {
       interest: 0, principal: 0, memo: strOf(b.memo, 60)
     });
     rebuildDebt(d);
+  },
+
+  /** 追加で借りた記録。当初借入額も増やし、進捗率が借りた総額に対する割合になるようにする。 */
+  addBorrow(b) {
+    const d = findDebt(strOf(b.debtId, 40));
+    if (!d) throw new Refused('その借入は見つかりません');
+    const amount = toNum(b.amount);
+    if (!(amount > 0)) throw new Refused('借入額は1円以上で入力してください');
+    const date = dateOrDefault(b.date, nowISO());
+    if (d.originDate && date < d.originDate) {
+      throw new Refused(
+        `この借入は ${d.originDate} 時点の残高として登録されています。` +
+        `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
+        `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
+    }
+    mem.borrows.push({ id: newId(), debtId: d.id, date, amount, memo: strOf(b.memo, 60) });
+    d.initial += amount;
+    rebuildDebt(d);
+  },
+
+  deleteBorrow(id) {
+    const b = mem.borrows.find(x => x.id === id);
+    if (!b) return;
+    mem.borrows = mem.borrows.filter(x => x.id !== id);
+    const d = findDebt(b.debtId);
+    if (d) { d.initial = Math.max(0, d.initial - b.amount); rebuildDebt(d); }
   },
 
   deleteRepayment(id) {
@@ -185,7 +221,7 @@ const MUT = {
   },
 
   wipe() {
-    mem = { debts: [], txns: [], repayments: [], cards: [], cardBills: [],
+    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -244,8 +280,15 @@ const MUT = {
         memo: strOf(r.memo, 60)
       });
     }
+    const borrows = [];
+    for (const b of (p.borrows || [])) {
+      const amount = toNum(b.amount);
+      if (!(amount > 0) || !seen.has(strOf(b.debtId, 40))) continue;   // 宛先の無い記録は捨てる
+      borrows.push({ id: strOf(b.id, 40) || newId(), debtId: strOf(b.debtId, 40),
+                     date: dateOrDefault(b.date, nowISO()), amount, memo: strOf(b.memo, 60) });
+    }
     const g = p.goals || {};
-    mem = { debts, cards, cardBills, txns, repayments, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, borrows, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -354,6 +397,10 @@ async function api(path, method, body) {
     case 'repayments':
       if (m === 'POST')   return save(() => MUT.addRepayment(body));
       if (m === 'DELETE') return save(() => MUT.deleteRepayment(id));
+      break;
+    case 'borrows':
+      if (m === 'POST')   return save(() => MUT.addBorrow(body));
+      if (m === 'DELETE') return save(() => MUT.deleteBorrow(id));
       break;
     case 'txns':
       if (m === 'POST')   return save(() => MUT.addTxn(body));
