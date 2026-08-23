@@ -551,6 +551,7 @@ console.log('\n現金回収と取り置き');
     grab('monthKey', 'const'),
     grab('payMonthOf', 'const'),
     grab('addMonthKey'),
+    grab('rows', 'const'),
     grab('outflow'),
     grab('monthSummary'),
     grab('committedNext'),
@@ -560,7 +561,7 @@ console.log('\n現金回収と取り置き');
   const { monthKey, payMonthOf, addMonthKey, outflow, monthSummary, committedNext } = F;
 
   // 現金で30,000回収し、報酬12,000を差し引いた18,000をカードで返す。
-  state = { debts: [], repayments: [], cards: [], cardBills: [], txns: [
+  state = { debts: [], repayments: [], borrows: [], cards: [], cardBills: [], txns: [
     { id: 'a', type: 'income',  date: '2026-08-20', amount: 30000,
       category: '配達（現金回収）', payMonth: '2026-08' },
     { id: 'b', type: 'expense', date: '2026-08-22', amount: 18000,
@@ -590,9 +591,60 @@ console.log('\n現金回収と取り置き');
     tight.net - committedNext('2026-08') < 0,
     `余力 ${tight.net} - 取り置き ${committedNext('2026-08')}`);
 
+  /* --- 新しい種類のデータを持たない保存先を開いても落ちないこと --- */
+  {
+    // 列を足したとき、既存のシートを読んで画面が壊れたことがある。同じ轍を踏まない。
+    const cases = [
+      ['全部そろっている', { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [] }],
+      ['borrows が無い',   { debts: [], txns: [], repayments: [], cards: [], cardBills: [] }],
+      ['cards も無い',     { debts: [], txns: [], repayments: [] }],
+      ['txns も無い',      { debts: [] }],
+      ['空のまま',         {}]
+    ];
+    const broken = cases.filter(([, st]) => {
+      F.set(st);
+      try { monthSummary('2026-08'); committedNext('2026-08'); return false; }
+      catch (e) { return true; }
+    }).map(([label]) => label);
+    ok('データの種類が欠けていても集計が落ちない', broken.length === 0, broken.join(' | '));
+  }
+
+  /* --- 月の返済は「返済 − 借入」。同じ月に借りたら、その分は減っていない --- */
+  {
+    const mk = (reps, bws) => ({
+      debts: [], cards: [], cardBills: [],
+      txns: [
+        { id: 'i', type: 'income', date: '2026-08-25', amount: 300000, category: '給与', payMonth: '2026-08' },
+        { id: 'e', type: 'expense', date: '2026-08-05', amount: 150000, category: '食費', payMonth: '2026-08' }
+      ],
+      repayments: reps, borrows: bws
+    });
+    const at = st => { F.set(st); return monthSummary('2026-08'); };
+    const rep = [{ id: 'r', debtId: 'd', date: '2026-08-10', amount: 30000 }];
+
+    const plain = at(mk(rep, []));
+    ok('借入が無ければ返済はそのまま', plain.repay === 30000 && plain.repayGross === 30000);
+    ok('借入が無ければ余力も従来どおり', plain.net === 120000, String(plain.net));
+
+    const mixed = at(mk(rep, [{ id: 'b', debtId: 'd', date: '2026-08-20', amount: 20000 }]));
+    ok('同じ月に借りたら返済から差し引く', mixed.repay === 10000, String(mixed.repay));
+    ok('総額と借入は別に取れる',
+      mixed.repayGross === 30000 && mixed.borrow === 20000,
+      `${mixed.repayGross} / ${mixed.borrow}`);
+    ok('借りた分は手元に入るので余力は増える', mixed.net === 140000, String(mixed.net));
+
+    const over = at(mk(rep, [{ id: 'b', debtId: 'd', date: '2026-08-20', amount: 50000 }]));
+    ok('借りた方が多ければ返済はマイナスになる', over.repay === -20000, String(over.repay));
+
+    // 別の月の借入は影響しない
+    const other = at(mk(rep, [{ id: 'b', debtId: 'd', date: '2026-09-20', amount: 20000 }]));
+    ok('別の月の借入は当月に影響しない', other.repay === 30000 && other.borrow === 0,
+      `${other.repay} / ${other.borrow}`);
+  }
+
   /* --- カードの請求額。明細と二重に数えないことが肝 --- */
   const base = {
-    debts: [], repayments: [],
+    debts: [], repayments: [], borrows: [],
     cards: [{ id: 'c1', name: '楽天カード' }, { id: 'c2', name: '三井住友VISA' }],
     cardBills: [],
     txns: [
@@ -651,7 +703,7 @@ console.log('\n現金回収と取り置き');
     monthSummary('2026-09').expensePaid === 23000 && monthSummary('2026-09').out.orphan === 23000);
 
   // 引落月を持たない古い記録は、利用月に出ていったものとして扱う
-  state = { debts: [], repayments: [], cards: [], cardBills: [], txns: [
+  state = { debts: [], repayments: [], borrows: [], cards: [], cardBills: [], txns: [
     { id: 'd', type: 'expense', date: '2026-08-05', amount: 5000, category: '食費' }
   ] };
   F.set(state);

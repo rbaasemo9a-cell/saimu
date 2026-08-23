@@ -713,6 +713,13 @@ details.tableview > div { margin-top: 8px; }
   /** 実際に口座から出ていく月。未設定の古い記録は利用月とみなす。 */
   const payMonthOf = t => t.payMonth || monthKey(t.date);
 
+  /**
+   * 一覧の取り出し。新しい種類のデータを足したとき、まだそれを持たない保存先を
+   * 開いても画面が落ちないようにする。列を足して実際に壊したことがあるので、
+   * ここは必ずこの関数を通す。
+   */
+  const rows = name => (Array.isArray(state[name]) ? state[name] : []);
+
   function monthsBetween(fromKey, toKey) {
     const [y1, m1] = fromKey.split('-').map(Number);
     const [y2, m2] = toKey.split('-').map(Number);
@@ -1912,7 +1919,7 @@ window.saimuSignOut = signOutAndReset;
   function outflow(key, usedBy) {
     let cash = 0;
     const byCard = {};
-    state.txns.forEach(t => {
+    rows('txns').forEach(t => {
       if (t.type !== 'expense' || payMonthOf(t) !== key) return;
       if (usedBy && monthKey(t.date) > usedBy) return;
       if (t.cardId) byCard[t.cardId] = (byCard[t.cardId] || 0) + t.amount;
@@ -1920,9 +1927,9 @@ window.saimuSignOut = signOutAndReset;
     });
 
     const bills = {};
-    state.cardBills.forEach(b => { if (b.payMonth === key) bills[b.cardId] = b.amount; });
+    rows('cardBills').forEach(b => { if (b.payMonth === key) bills[b.cardId] = b.amount; });
 
-    const rows = state.cards.map(c => {
+    const cardRows = rows('cards').map(c => {
       const billed = Object.prototype.hasOwnProperty.call(bills, c.id);
       return {
         id: c.id, name: c.name, billed,
@@ -1933,11 +1940,11 @@ window.saimuSignOut = signOutAndReset;
     // 消したカードに紐づいたままの明細も取りこぼさない
     let orphan = 0;
     Object.keys(byCard).forEach(id => {
-      if (!state.cards.some(c => c.id === id)) orphan += byCard[id];
+      if (!cardRows.some(c => c.id === id)) orphan += byCard[id];
     });
 
-    const card = rows.reduce((a, r) => a + r.amount, 0) + orphan;
-    return { cash, card, orphan, rows, total: cash + card };
+    const card = cardRows.reduce((a, r) => a + r.amount, 0) + orphan;
+    return { cash, card, orphan, rows: cardRows, total: cash + card };
   }
 
   /**
@@ -1948,7 +1955,7 @@ window.saimuSignOut = signOutAndReset;
    */
   function monthSummary(key) {
     let income = 0, expense = 0, expensePaid = 0, deferred = 0;
-    state.txns.forEach(t => {
+    rows('txns').forEach(t => {
       const used = monthKey(t.date) === key;
       if (t.type === 'income') { if (used) income += t.amount; return; }
       if (used) {
@@ -1958,10 +1965,19 @@ window.saimuSignOut = signOutAndReset;
     });
     const out = outflow(key);
     expensePaid = out.total;
-    const repay = state.repayments
+
+    // その月に実際に借金が減った額。返済しても同じ月に借りていれば、その分は戻る。
+    // 現金の流れとしても、借入は手元に入るお金なので差し引きで見るのが正しい。
+    const repayGross = rows('repayments')
       .filter(r => monthKey(r.date) === key)
       .reduce((s, r) => s + r.amount, 0);
-    return { key, income, expense, expensePaid, deferred, repay, out,
+    const borrow = rows('borrows')
+      .filter(b => monthKey(b.date) === key)
+      .reduce((s, b) => s + b.amount, 0);
+    const repay = repayGross - borrow;
+
+    return { key, income, expense, expensePaid, deferred, out,
+             repay, repayGross, borrow,
              net: income - expensePaid - repay };
   }
 
@@ -1976,12 +1992,12 @@ window.saimuSignOut = signOutAndReset;
 
   /** その月に引き落とされる額のうち、前の月までに使った分（＝カード払いの繰越）。 */
   function carriedInto(key) {
-    return state.txns
+    return rows('txns')
       .filter(t => t.type === 'expense' && payMonthOf(t) === key && monthKey(t.date) !== key)
       .reduce((s, t) => s + t.amount, 0);
   }
 
-  const cardName = id => (state.cards.find(c => c.id === id) || {}).name || '';
+  const cardName = id => (rows('cards').find(c => c.id === id) || {}).name || '';
 
   /** 直近 n ヶ月（当月を含む）のキー配列 */
   function recentMonths(n) {
@@ -2471,7 +2487,7 @@ window.saimuSignOut = signOutAndReset;
          <div class="tile">
            <span class="tile-label">今月の収支（返済後）</span>
            <span class="tile-value ${ms.net < 0 ? 'neg' : 'pos'}">${yen(ms.net)}</span>
-           <span class="tile-delta">収入 ${compact(ms.income)}・引落 ${compact(ms.expensePaid)}・返済 ${compact(ms.repay)}${ms.deferred > 0 ? `<br>カードで翌月に回る分 ${compact(ms.deferred)}` : ''}</span>
+           <span class="tile-delta">収入 ${compact(ms.income)}・引落 ${compact(ms.expensePaid)}・返済 ${compact(ms.repay)}${ms.borrow > 0 ? `（${compact(ms.repayGross)}−借入${compact(ms.borrow)}）` : ''}${ms.deferred > 0 ? `<br>カードで翌月に回る分 ${compact(ms.deferred)}` : ''}</span>
          </div>
          <div class="tile">
            <span class="tile-label">これから1ヶ月の利息</span>
@@ -2537,7 +2553,7 @@ window.saimuSignOut = signOutAndReset;
     const series = [
       { name: '収入', color: SERIES(0) },
       { name: '生活支出（引落）', color: SERIES(1) },
-      { name: '返済', color: SERIES(2) }
+      { name: '返済（借入を差引）', color: SERIES(2) }
     ];
     // 棒は現金の出入りなので引落ベース。使った月ではなく出ていく月で並べる。
     const groups = sums.map(s => ({
@@ -2557,17 +2573,19 @@ window.saimuSignOut = signOutAndReset;
       document.getElementById(tableId).innerHTML = `<div class="table-wrap"><table class="ledger">
         <thead><tr><th>月</th><th class="r">収入</th>
           <th class="r col-memo" title="その月に使った額">使った額</th>
-          <th class="r">引落</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
+          <th class="r">引落</th><th class="r col-memo">借入</th><th class="r">返済</th><th class="r">差引</th></tr></thead>
         <tbody>${sums.map(s => `<tr><td>${esc(s.key)}</td>
           <td class="r">${yen(s.income)}</td>
           <td class="r col-memo" style="color:var(--ink-3)">${yen(s.expense)}</td>
           <td class="r">${yen(s.expensePaid)}</td>
-          <td class="r">${yen(s.repay)}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${s.borrow > 0 ? '+' + yen(s.borrow) : '—'}</td>
+          <td class="r ${s.repay < 0 ? 'amt-neg' : ''}">${yen(s.repay)}</td>
           <td class="r ${s.net < 0 ? 'amt-neg' : 'amt-pos'}">${yen(s.net)}</td></tr>`).join('')}</tbody>
         <tfoot><tr><td>合計</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.income, 0))}</td>
           <td class="r col-memo" style="color:var(--ink-3)">${yen(sums.reduce((a, s) => a + s.expense, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.expensePaid, 0))}</td>
+          <td class="r col-memo" style="color:var(--ink-3)">${yen(sums.reduce((a, s) => a + s.borrow, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.repay, 0))}</td>
           <td class="r">${yen(sums.reduce((a, s) => a + s.net, 0))}</td></tr></tfoot></table></div>`;
     }
@@ -2701,8 +2719,11 @@ window.saimuSignOut = signOutAndReset;
          <div class="tile"><span class="tile-label">生活支出（引落ベース）</span>
            <span class="tile-value">${yen(s.expensePaid)}</span>
            <span class="tile-delta">${carried > 0 ? `うち前月までの利用 ${compact(carried)}` : 'すべて当月の利用'}</span></div>
-         <div class="tile"><span class="tile-label">返済</span><span class="tile-value">${yen(s.repay)}</span>
-           <span class="tile-delta">${repRows.length}件の記録</span></div>
+         <div class="tile"><span class="tile-label">返済（借入を差引）</span>
+           <span class="tile-value ${s.repay < 0 ? 'neg' : ''}">${yen(s.repay)}</span>
+           <span class="tile-delta">${s.borrow > 0
+             ? `返済 ${compact(s.repayGross)} − 借入 ${compact(s.borrow)}`
+             : `${repRows.length}件の記録`}</span></div>
          <div class="tile"><span class="tile-label">残り（貯蓄・繰上返済の余力）</span>
            <span class="tile-value ${s.net < 0 ? 'neg' : 'pos'}">${yen(s.net)}</span>
            ${committed > 0 ? `<span class="tile-delta">取り置き後 <b class="num">${yen(s.net - committed)}</b></span>` : ''}</div>
@@ -2898,7 +2919,8 @@ window.saimuSignOut = signOutAndReset;
 
        <div class="grid g-2" style="margin-top:16px">
          <div class="panel">
-           <div class="panel-head"><h2>今月の返済目標</h2><span class="hint">${esc(thisMonth())}</span></div>
+           <div class="panel-head"><h2>今月の返済目標</h2>
+             <span class="hint">${esc(thisMonth())}・借入を差引</span></div>
            <div class="panel-body">
              ${mgoal > 0
               ? `<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:9px">
@@ -2909,6 +2931,8 @@ window.saimuSignOut = signOutAndReset;
                  <p style="font-size:12.5px;color:var(--ink-2);margin-top:9px">${mprog >= 100
                    ? '今月の目標を達成しています。'
                    : 'あと <b class="num">' + yen(mgoal - mrepay) + '</b> で今月の目標に届きます。'}</p>
+                 ${mSum.borrow > 0 ? `<p style="font-size:12px;color:var(--ink-3);margin-top:6px">
+                   返済 ${yen(mSum.repayGross)} から、今月の追加借入 ${yen(mSum.borrow)} を差し引いた額です。</p>` : ''}
                  ${hold > 0 ? `<div class="callout ${mNet - hold < 0 ? 'crit' : 'warn'}" style="margin-top:11px">
                    ${mNet - hold < 0 ? ICON.crit : ICON.warn}<div>
                    来月の引落 <b>${yen(hold)}</b> が確定しています。返済に回す前に取り置いてください。
