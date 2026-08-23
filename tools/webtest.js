@@ -76,7 +76,7 @@ ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,160}
   ok('読み込んだ内容を端末に控える', /function saveCache/.test(app) && /function loadCache/.test(app));
   ok('開いたらまず控えを出す', /function showCached/.test(app) && /const cached = showCached\(\)/.test(app));
   ok('控えがあればログイン画面で止めない',
-    /if \(cached\) showStaleBanner\(cached\.at/.test(app));
+    app.includes('showStaleBanner(cached.at)') && !app.includes('if (cached) showGate'));
   ok('いつ時点かを帯で知らせる', /function showStaleBanner/.test(app));
   ok('書き込んだら控えも更新する', /await writeAll\(mem\);[\s\S]{0,40}saveCache\(mem\);/.test(app));
   ok('ログアウトで控えも消す', /function signOut[\s\S]{0,220}clearCache\(\)/.test(app));
@@ -85,6 +85,14 @@ ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,160}
     /authReason !== 'rejected'[\s\S]{0,220}forgetToken\(\)/.test(app));
   ok('ログインが要る理由を画面に出す',
     app.includes('gate-why') && /expired:/.test(app) && /rejected:/.test(app));
+  // 控えがあるのに勝手に認証しにいくと、アカウント選択が出てしまう
+  // 控えがあるのに勝手に認証しにいくと、アカウント選択が出てしまう
+  ok('控えがあるなら自動で認証しにいかない',
+    app.includes('if (cached) {') && app.includes('showStaleBanner(cached.at);'));
+  ok('使用中は期限切れ前に先回りして取り直す',
+    app.includes('function keepTokenFresh') && app.includes('tokenExpires - 10 * 60 * 1000'));
+  ok('期限は Google が返す値をそのまま使う',
+    app.includes('Number(r.expires_in || 3600)'));
 }
 
 /*

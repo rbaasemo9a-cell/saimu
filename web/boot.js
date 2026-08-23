@@ -135,15 +135,38 @@ async function boot() {
     }
   }
 
-  // 鍵が無い・切れている。控えがあるならそれを見せたまま、静かに取り直しを試す。
+  // 鍵が無い・切れている。
+  // ここで自動的に取り直そうとすると、Google のアカウント選択が勝手に出る。
+  // 静かに終わる保証が無い（特にスマホのブラウザ）ので、控えがあるなら出さない。
+  // 更新は「最新にする」を押したときと、記録を変えるときだけにする。
+  if (cached) {
+    showStaleBanner(cached.at);
+    return;
+  }
   try {
     await getToken(false);
     await afterSignIn();
   } catch (e) {
-    if (cached) showStaleBanner(cached.at, 'ログインすると最新に更新できます');
-    else showGate('in');
+    showGate('in');
   }
 }
+
+/**
+ * 使っている最中に期限が切れないよう、先回りして取り直す。
+ * すでに許可済みで Google の画面も開いたばかりなので、たいていは何も出ずに通る。
+ * 失敗しても何もしない（控えを見せたまま、必要なときに押してもらう）。
+ */
+function keepTokenFresh() {
+  setInterval(async () => {
+    if (document.hidden || !online) return;
+    if (!accessToken) return;
+    if (Date.now() < tokenExpires - 10 * 60 * 1000) return;   // 残り10分を切ってから
+    try {
+      await getToken(false);
+    } catch (e) { /* 取り直せなければ、次の操作のときに改めて出す */ }
+  }, 5 * 60 * 1000);
+}
+keepTokenFresh();
 
 /** 控えを見せているときの帯。いつ時点の数字かと、更新の手立てを出す。 */
 function showStaleBanner(at, note) {
