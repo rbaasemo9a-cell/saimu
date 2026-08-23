@@ -563,6 +563,16 @@ console.log('\n現金回収と取り置き');
   ok('比較表は key で引ける', /key: 'plan'/.test(src) && /key: 'minimum'/.test(src) &&
     /function pick\(sts, key\)/.test(src));
 
+  // 目標画面が古い方式・古い基準のまま取り残されていないこと
+  ok('目標画面に「高金利優先」の文言が残っていない', !src.includes('高金利優先で返済した場合'));
+  ok('平均余力は引落ベースで出す', /avgCapacity[\s\S]{0,600}m\.income - m\.expensePaid/.test(src));
+  ok('平均余力が発生ベースに戻っていない',
+    !/avgCapacity[\s\S]{0,600}m\.income - m\.expense[^P]/.test(src));
+
+  // 支出カテゴリ
+  ok('支出カテゴリに社会保険がある', src.includes("'社会保険'"));
+  ok('私的な保険とは別項目のまま', src.includes("'保険'") && src.includes("'社会保険'"));
+
   state.debts = [
     fx('a', '少額', 266000, 15, 15000),
     fx('b', '中', 888000, 3.9, 32000),

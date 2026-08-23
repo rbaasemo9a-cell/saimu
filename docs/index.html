@@ -674,7 +674,7 @@ details.tableview > div { margin-top: 8px; }
   const INCOME_CATS  = ['給与', '賞与', '配達（現金回収）', '副業', '事業', '年金・給付', 'その他収入'];
   const EXPENSE_CATS = ['住居', '食費', '水道光熱', '通信', '交通', '保険', '医療',
                         '日用品', '被服', '教育', '交際費', '娯楽',
-                        '預かり金の返却', 'その他支出'];
+                        '社会保険', '税金', '預かり金の返却', 'その他支出'];
 
   const yen  = n => '¥' + Math.round(n).toLocaleString('ja-JP');
   const yen0 = n => Math.round(n).toLocaleString('ja-JP');
@@ -1879,7 +1879,11 @@ window.saimuSignOut = signOutAndReset;
     return out;
   }
 
-  /** 平均月次返済余力：直近 n ヶ月の (収入 - 生活支出) の平均 */
+  /**
+   * 返済に回せる月々の余力：直近 n ヶ月の (収入 − 引落) の平均。
+   * 使った月ではなく口座から出ていく月で数える。カード払いを発生ベースで引くと、
+   * 引落が翌月に来る分だけ余力を過大にも過小にも見せてしまう。
+   */
   function avgCapacity(n) {
     const keys = recentMonths(n).filter(k => {
       return state.txns.some(t => monthKey(t.date) === k);
@@ -1887,7 +1891,7 @@ window.saimuSignOut = signOutAndReset;
     if (!keys.length) return null;
     const tot = keys.reduce((s, k) => {
       const m = monthSummary(k);
-      return s + (m.income - m.expense);
+      return s + (m.income - m.expensePaid);
     }, 0);
     return tot / keys.length;
   }
@@ -2711,10 +2715,10 @@ window.saimuSignOut = signOutAndReset;
               <span class="tile-delta">${esc(g.targetDate)} まで</span></div>
             <div class="tile"><span class="tile-label">必要な月々の返済額</span>
               <span class="tile-value">${need == null ? '—' : yen(need)}</span>
-              <span class="tile-delta">高金利優先で返済した場合</span></div>
+              <span class="tile-delta">雪だるま式で返済した場合</span></div>
             <div class="tile"><span class="tile-label">直近3ヶ月の平均余力</span>
               <span class="tile-value ${cap != null && need != null && cap < need ? 'neg' : 'pos'}">${cap == null ? '—' : yen(cap)}</span>
-              <span class="tile-delta">収入 − 生活支出の平均</span></div>
+              <span class="tile-delta">収入 − 引落の平均</span></div>
           </div>
           ${need == null
             ? `<div class="callout crit" style="margin-top:13px">${ICON.crit}<div>この期間内に完済できる返済額が見つかりませんでした。目標日を先に延ばすか、借り換えで金利を下げることを検討してください。</div></div>`
@@ -2733,7 +2737,10 @@ window.saimuSignOut = signOutAndReset;
     }
 
     // 今月の返済目標の進捗
-    const mrepay = monthSummary(thisMonth()).repay;
+    const mSum = monthSummary(thisMonth());
+    const mrepay = mSum.repay;
+    const mNet = mSum.net;
+    const hold = committedNext(thisMonth());
     const mgoal = g.monthlyRepay || 0;
     const mprog = mgoal > 0 ? (mrepay / mgoal) * 100 : 0;
 
@@ -2778,7 +2785,11 @@ window.saimuSignOut = signOutAndReset;
                  <div class="meter ${mprog >= 100 ? 'is-good' : mprog >= 60 ? '' : 'is-warn'}"><i style="width:${clamp(mprog, 0, 100)}%"></i></div>
                  <p style="font-size:12.5px;color:var(--ink-2);margin-top:9px">${mprog >= 100
                    ? '今月の目標を達成しています。'
-                   : 'あと <b class="num">' + yen(mgoal - mrepay) + '</b> で今月の目標に届きます。'}</p>`
+                   : 'あと <b class="num">' + yen(mgoal - mrepay) + '</b> で今月の目標に届きます。'}</p>
+                 ${hold > 0 ? `<div class="callout ${mNet - hold < 0 ? 'crit' : 'warn'}" style="margin-top:11px">
+                   ${mNet - hold < 0 ? ICON.crit : ICON.warn}<div>
+                   来月の引落 <b>${yen(hold)}</b> が確定しています。返済に回す前に取り置いてください。
+                   今月まだ動かせるのは <b>${yen(Math.max(0, mNet - hold))}</b> です。</div></div>` : ''}`
               : `<p style="color:var(--ink-3);font-size:13px">月々の返済目標を設定すると、達成度をここに表示します。</p>`}
            </div>
          </div>
