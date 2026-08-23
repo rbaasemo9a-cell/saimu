@@ -68,8 +68,16 @@ db.addRepayment({ debtId: d1, amount: 30000, date: '2026-01-31', memo: 'テス�
   db.deleteRepayment(rid);
   const d = findD(d1);
   ok('返済を取り消すと元金が元に戻る', near(d.principal, 1000000), `principal=${d.principal}`);
-  ok('返済を取り消すと未払利息も戻る', near(d.interestAccrued, DAILY(1000000, 12, 30)),
-    `interest_accrued=${d.interestAccrued}`);
+  // 保存するのは起点だけ。取り消すとそこへ戻り、利息は読み出すときに数え直す。
+  ok('返済を取り消すと起点の状態に戻る',
+    near(d.interestAccrued, 0) && d.accruedAt === '2026-01-01',
+    `${d.interestAccrued} / ${d.accruedAt}`);
+  const today = new Date();
+  const iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') +
+              '-' + String(today.getDate()).padStart(2, '0');
+  ok('今日時点の利息は起点から数え直される',
+    near(d.interestToday, DAILY(1000000, 12, db.daysBetween('2026-01-01', iso)), 1),
+    `interestToday=${Math.round(d.interestToday)}`);
   ok('返済記録が消えている', db.getState().repayments.length === 0);
 }
 
@@ -94,16 +102,67 @@ db.addRepayment({ debtId: d1, amount: 30000, date: '2026-01-31', memo: 'テス�
   db.deleteDebt(dx);
 }
 
+// 返済は入力順に左右されない（日付順に再生して組み立て直す）
+{
+  const dates = ['2026-08-05', '2026-08-15', '2026-08-25'];
+  const snap = order => {
+    const id = db.addDebt({ name: '順序' + order.join(''), principal: 1000000,
+                            accruedAt: '2026-07-31', rate: 14.5, minPayment: 30000 });
+    order.forEach(i => db.addRepayment({ debtId: id, amount: 30000, date: dates[i] }));
+    const st = db.getState();
+    const d = st.debts.find(x => x.id === id);
+    const reps = st.repayments.filter(r => r.debtId === id)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(r => [r.date, Math.round(r.interest), Math.round(r.principal)]);
+    const out = JSON.stringify({ p: Math.round(d.principal), i: Math.round(d.interestAccrued),
+                                 at: d.accruedAt, reps });
+    db.deleteDebt(id);
+    return out;
+  };
+  const asc = snap([0, 1, 2]), desc = snap([2, 1, 0]), mixed = snap([1, 0, 2]);
+  ok('日付順でも逆順でも同じ結果になる', asc === desc, asc + ' vs ' + desc);
+  ok('ばらばらに入れても同じ結果になる', asc === mixed, asc + ' vs ' + mixed);
+  ok('各返済の内訳も日付順で振り直される',
+    JSON.parse(desc).reps.every(r => r[1] > 0), desc);
+}
+
+// 起点より前の返済は拒否する（申告した残高に既に含まれているため）
+{
+  const dz = db.addDebt({ name: '起点あり', principal: 1000000, accruedAt: '2026-08-22',
+                          rate: 14.5, minPayment: 30000 });
+  let msg = '';
+  try { db.addRepayment({ debtId: dz, amount: 30000, date: '2026-07-10' }); }
+  catch (e) { msg = e.message; }
+  ok('起算日より前の返済は拒否される', msg.includes('2026-08-22') && msg.includes('2026-07-10'), msg);
+  ok('拒否されたとき残高は動かない',
+    findD(dz).principal === 1000000, String(findD(dz).principal));
+  ok('起算日と同じ日は記録できる',
+    (() => { try { db.addRepayment({ debtId: dz, amount: 10000, date: '2026-08-22' }); return true; }
+             catch (e) { return false; } })());
+
+  // 取り消すと起点の状態にきれいに戻る
+  db.getState().repayments.filter(r => r.debtId === dz).forEach(r => db.deleteRepayment(r.id));
+  const back = findD(dz);
+  ok('全部取り消すと起点に戻る',
+    near(back.principal, 1000000) && near(back.interestAccrued, 0) && back.accruedAt === '2026-08-22',
+    `${Math.round(back.principal)} / ${Math.round(back.interestAccrued)} / ${back.accruedAt}`);
+  db.deleteDebt(dz);
+}
+
 // 過去の日付で記録しても起算日は巻き戻らない（同じ期間の利息を二度積まない）
 {
   const dy = db.addDebt({ name: '順序ばらばら', principal: 500000, accruedAt: '2026-05-01',
                           rate: 12, minPayment: 10000 });
   db.addRepayment({ debtId: dy, amount: 10000, date: '2026-06-01' });
-  db.addRepayment({ debtId: dy, amount: 10000, date: '2026-05-15' });  // 過去の日付
+  db.addRepayment({ debtId: dy, amount: 10000, date: '2026-05-15' });  // あとから過去分を追加
   const d = findD(dy);
   const back = db.getState().repayments.find(x => x.debtId === dy && x.date === '2026-05-15');
-  ok('過去日付の返済では利息が発生しない', near(back.interest, 0), `interest=${back.interest}`);
-  ok('起算日は巻き戻らない', d.accruedAt === '2026-06-01', d.accruedAt);
+  const later = db.getState().repayments.find(x => x.debtId === dy && x.date === '2026-06-01');
+  ok('あとから足した過去の返済にも利息が付く',
+    near(back.interest, DAILY(500000, 12, 14), 1), `interest=${back.interest}`);
+  ok('あとの返済の利息も計算し直される', later.interest > 0 && later.interest < back.interest * 2,
+    `${back.interest} → ${later.interest}`);
+  ok('起算日は最も新しい返済日になる', d.accruedAt === '2026-06-01', d.accruedAt);
   db.deleteDebt(dy);
 }
 

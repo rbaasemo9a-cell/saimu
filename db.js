@@ -19,9 +19,15 @@ db.exec(`
 CREATE TABLE IF NOT EXISTS debts (
   id               TEXT PRIMARY KEY,
   name             TEXT NOT NULL,
+  -- 現在の状態。返済を記録するたびに、下の起点から再生して組み立て直す。
   principal        REAL NOT NULL DEFAULT 0 CHECK(principal >= 0),
   interest_accrued REAL NOT NULL DEFAULT 0 CHECK(interest_accrued >= 0),
   accrued_at       TEXT NOT NULL DEFAULT '',
+  -- 起点。「この日時点でこの残高だった」という申告そのもの。
+  -- 返済の入力順に影響されないよう、ここは返済では動かさない。
+  origin_principal REAL NOT NULL DEFAULT 0,
+  origin_interest  REAL NOT NULL DEFAULT 0,
+  origin_date      TEXT NOT NULL DEFAULT '',
   initial          REAL NOT NULL DEFAULT 0 CHECK(initial >= 0),
   rate             REAL NOT NULL DEFAULT 0 CHECK(rate >= 0 AND rate <= 100),
   min_payment      REAL NOT NULL DEFAULT 0 CHECK(min_payment >= 0),
@@ -195,6 +201,23 @@ function accrue(d, toISO) {
   console.log('[db] 収支 ' + n + ' 件に引落月を補いました');
 })();
 
+/**
+ * 起点を持たなかった頃の借入に、今の状態をそのまま起点として入れる。
+ * 既存の返済はすべて起点より前になるので再生の対象外になり、残高は変わらない。
+ */
+(function migrateDebtOrigin() {
+  const cols = new Set(db.prepare('PRAGMA table_info(debts)').all().map(c => c.name));
+  if (cols.has('origin_date')) return;
+  db.exec(`ALTER TABLE debts ADD COLUMN origin_principal REAL NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE debts ADD COLUMN origin_interest  REAL NOT NULL DEFAULT 0`);
+  db.exec(`ALTER TABLE debts ADD COLUMN origin_date      TEXT NOT NULL DEFAULT ''`);
+  const n = db.prepare('SELECT COUNT(*) AS n FROM debts').get().n;
+  db.exec(`UPDATE debts SET origin_principal = principal,
+                            origin_interest  = interest_accrued,
+                            origin_date      = accrued_at`);
+  if (n) console.log('[db] 借入 ' + n + ' 件に、いまの状態を起点として記録しました');
+})();
+
 /** どのカードで払ったかを持てるようにする。空欄は現金・口座払い、または未指定のカード。 */
 (function migrateTxnCard() {
   const cols = new Set(db.prepare('PRAGMA table_info(txns)').all().map(c => c.name));
@@ -281,9 +304,11 @@ function addDebt(b) {
   const f = debtFields(b);
   const id = uid();
   db.prepare(`INSERT INTO debts (id, name, principal, interest_accrued, accrued_at,
+                                 origin_principal, origin_interest, origin_date,
                                  initial, rate, min_payment, created_at)
-              VALUES (?,?,?,?,?,?,?,?,?)`)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, name, f.principal, f.interest, f.accruedAt,
+         f.principal, f.interest, f.accruedAt,
          f.initial, f.rate, f.minPayment, localToday());
   return id;
 }
@@ -293,9 +318,17 @@ function updateDebt(id, b) {
   const name = str(b.name, 60);
   if (!name) throw new BadRequest('借入先の名前を入力してください');
   const f = debtFields(b);
-  db.prepare(`UPDATE debts SET name=?, principal=?, interest_accrued=?, accrued_at=?,
-                               initial=?, rate=?, min_payment=? WHERE id=?`)
-    .run(name, f.principal, f.interest, f.accruedAt, f.initial, f.rate, f.minPayment, id);
+  // 編集は「この日時点でこの残高だった」という申告し直し。起点も一緒に更新し、
+  // それ以降の返済を再生して現在の状態を組み直す。
+  tx(() => {
+    db.prepare(`UPDATE debts SET name=?, principal=?, interest_accrued=?, accrued_at=?,
+                                 origin_principal=?, origin_interest=?, origin_date=?,
+                                 initial=?, rate=?, min_payment=? WHERE id=?`)
+      .run(name, f.principal, f.interest, f.accruedAt,
+           f.principal, f.interest, f.accruedAt,
+           f.initial, f.rate, f.minPayment, id);
+    rebuild(id);
+  });
 }
 
 /** 借入の削除。ON DELETE CASCADE で返済記録も一緒に消える。 */
@@ -306,13 +339,45 @@ function deleteDebt(id) {
 /* ---------- 返済 ---------- */
 
 /**
- * 返済の記録と残高の更新は必ず一組で行う。
- * 途中で落ちて「記録はあるが残高が減っていない」状態にはならない。
+ * 借入の現在の状態を、起点から返済を**日付順に**再生して組み立て直す。
  *
- * 手順は返済予定表と同じ順序:
- *   1. 起算日から返済日までの日割り利息を未払利息に積む
+ * 各回の手順は返済予定表と同じ:
+ *   1. 前回からその返済日までの日割り利息を未払利息に積む
  *   2. 返済額をまず未払利息へ充当する
  *   3. 余った分だけを元金から引く
+ *
+ * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても
+ * 結果は変わらない。各返済の利息／元金の内訳もここで書き直す。
+ */
+function rebuild(debtId) {
+  const d = Q.debt.get(debtId);
+  if (!d) return;
+  const reps = db.prepare(`SELECT id, date, amount FROM repayments
+                           WHERE debt_id = ? AND date >= ?
+                           ORDER BY date, rowid`).all(debtId, d.origin_date);
+
+  let principal = d.origin_principal;
+  let interest = d.origin_interest;
+  let cursor = d.origin_date;
+
+  const upd = db.prepare('UPDATE repayments SET interest = ?, principal = ? WHERE id = ?');
+  for (const r of reps) {
+    interest += principal * (d.rate / 100 / DAY_BASIS) * daysBetween(cursor, r.date);
+    const paidInterest = Math.min(r.amount, interest);
+    const paidPrincipal = Math.min(r.amount - paidInterest, principal);
+    upd.run(paidInterest, paidPrincipal, r.id);
+    interest -= paidInterest;
+    principal -= paidPrincipal;
+    if (r.date > cursor) cursor = r.date;
+  }
+
+  db.prepare('UPDATE debts SET principal=?, interest_accrued=?, accrued_at=? WHERE id=?')
+    .run(principal, interest, cursor, debtId);
+}
+
+/**
+ * 返済の記録。記録と残高の組み直しを必ず一組で行うので、
+ * 途中で落ちて「記録はあるが残高が減っていない」状態にはならない。
  */
 function addRepayment(b) {
   const d = Q.debt.get(str(b.debtId, 40));
@@ -321,32 +386,31 @@ function addRepayment(b) {
   if (!(amount > 0)) throw new BadRequest('返済額は1円以上で入力してください');
 
   const date = dateOr(b.date, localToday());
-  const acc = accrue(d, date);
-  const paidInterest = Math.min(amount, acc.interest);
-  const paidPrincipal = Math.min(amount - paidInterest, d.principal);
-  // 過去の日付で記録しても起算日は戻さない。戻すと同じ期間の利息を二度積んでしまう。
-  const accruedAt = date > d.accrued_at ? date : d.accrued_at;
+  // 起点より前の返済は、申告した残高に既に含まれている。足すと二重に減る。
+  if (d.origin_date && date < d.origin_date) {
+    throw new BadRequest(
+      `この借入は ${d.origin_date} 時点の残高として登録されています。` +
+      `それより前（${date}）の返済は、その残高に既に含まれているため記録できません。` +
+      `古い返済も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
+  }
 
   return tx(() => {
     const id = uid();
     db.prepare(`INSERT INTO repayments (id, debt_id, date, amount, interest, principal, memo)
-                VALUES (?,?,?,?,?,?,?)`)
-      .run(id, d.id, date, amount, paidInterest, paidPrincipal, str(b.memo, 60));
-    db.prepare('UPDATE debts SET principal=?, interest_accrued=?, accrued_at=? WHERE id=?')
-      .run(d.principal - paidPrincipal, acc.interest - paidInterest, accruedAt, d.id);
+                VALUES (?,?,?,?,0,0,?)`)
+      .run(id, d.id, date, amount, str(b.memo, 60));
+    rebuild(d.id);
     return id;
   });
 }
 
-/** 返済の取り消し。利息充当分と元金充当分をそれぞれ戻すところまでを一組で行う。 */
+/** 返済の取り消し。消してから残りを組み直すので、順番に関係なく元の状態に戻る。 */
 function deleteRepayment(id) {
   const r = Q.rep.get(id);
   if (!r) return;
   tx(() => {
-    db.prepare(`UPDATE debts SET principal = principal + ?, interest_accrued = interest_accrued + ?
-                WHERE id = ?`)
-      .run(Math.max(0, r.principal), Math.max(0, r.interest), r.debt_id);
     db.prepare('DELETE FROM repayments WHERE id = ?').run(id);
+    rebuild(r.debt_id);
   });
 }
 
@@ -463,15 +527,18 @@ function importState(p) {
     }
 
     const insD = db.prepare(`INSERT INTO debts (id,name,principal,interest_accrued,accrued_at,
+                                                origin_principal,origin_interest,origin_date,
                                                 initial,rate,min_payment,created_at)
-                             VALUES (?,?,?,?,?,?,?,?,?)`);
+                             VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
     const seen = new Set();
     for (const d of p.debts) {
       const id = str(d.id, 40) || uid();
       if (seen.has(id)) continue;
       seen.add(id);
       const f = debtFields(d);   // balance しか無い旧バックアップも読める
+      // 書き出した時点の状態をそのまま起点にする。返済は履歴として残るが再生の対象外。
       insD.run(id, str(d.name, 60) || '名称未設定', f.principal, f.interest, f.accruedAt,
+               f.principal, f.interest, f.accruedAt,
                f.initial, f.rate, f.minPayment, dateOr(d.createdAt, localToday()));
     }
 
@@ -527,9 +594,11 @@ function loadSample() {
     ].map(([name, prin, init, rate, min, pay]) => {
       const id = uid();
       db.prepare(`INSERT INTO debts (id,name,principal,interest_accrued,accrued_at,
+                                     origin_principal,origin_interest,origin_date,
                                      initial,rate,min_payment,created_at)
-                  VALUES (?,?,?,0,?,?,?,?,?)`)
-        .run(id, name, prin, mk(6) + '-27', init, rate, min, mk(10) + '-01');
+                  VALUES (?,?,?,0,?,?,0,?,?,?,?,?)`)
+        .run(id, name, prin, mk(6) + '-27', prin, mk(6) + '-27',
+             init, rate, min, mk(10) + '-01');
       return { id, prin, rate, pay, accruedAt: mk(6) + '-27' };
     });
 
@@ -563,8 +632,7 @@ function loadSample() {
       });
     }
 
-    const upd = db.prepare('UPDATE debts SET principal=?, accrued_at=? WHERE id=?');
-    debts.forEach(d => upd.run(d.prin, d.accruedAt, d.id));
+    debts.forEach(d => rebuild(d.id));
 
     db.prepare(`UPDATE goals SET target_date=?, monthly_repay=?, emergency=?, emergency_current=? WHERE id=1`)
       .run((now.getFullYear() + 3) + '-03-31', 95000, 600000, 180000);

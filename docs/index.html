@@ -781,6 +781,7 @@ const LS = {
 
 const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
+          'originPrincipal', 'originInterest', 'originDate',
           'initial', 'rate', 'minPayment', 'createdAt'],
   txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId'],
   cards: ['id', 'name', 'createdAt'],
@@ -789,7 +790,8 @@ const TABLES = {
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
-const NUMERIC = new Set(['principal', 'interestAccrued', 'initial', 'rate', 'minPayment',
+const NUMERIC = new Set(['principal', 'interestAccrued', 'originPrincipal', 'originInterest',
+                         'initial', 'rate', 'minPayment',
                          'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent',
                          'revision']);
 
@@ -1170,11 +1172,44 @@ function derive(st) {
 
 const findDebt = id => mem.debts.find(d => d.id === id);
 
+/**
+ * 借入の現在の状態を、起点から返済を**日付順に**再生して組み立て直す。
+ * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
+ */
+function rebuildDebt(d) {
+  const reps = mem.repayments
+    .filter(r => r.debtId === d.id && r.date >= d.originDate)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+
+  let principal = d.originPrincipal;
+  let interest = d.originInterest;
+  let cursor = d.originDate;
+
+  for (const r of reps) {
+    interest += accrueOn(principal, d.rate, daysBetweenISO(cursor, r.date));
+    const paidInterest = Math.min(r.amount, interest);
+    const paidPrincipal = Math.min(r.amount - paidInterest, principal);
+    r.interest = paidInterest;
+    r.principal = paidPrincipal;
+    interest -= paidInterest;
+    principal -= paidPrincipal;
+    if (r.date > cursor) cursor = r.date;
+  }
+  d.principal = principal;
+  d.interestAccrued = interest;
+  d.accruedAt = cursor;
+}
+
 const MUT = {
   addDebt(b) {
     const name = strOf(b.name, 60);
     if (!name) throw new Refused('借入先の名前を入力してください');
-    mem.debts.push(Object.assign({ id: newId(), name }, debtFields(b), { createdAt: nowISO() }));
+    const f = debtFields(b);
+    mem.debts.push(Object.assign({ id: newId(), name }, f, {
+      originPrincipal: f.principal, originInterest: f.interestAccrued, originDate: f.accruedAt,
+      createdAt: nowISO()
+    }));
   },
 
   updateDebt(id, b) {
@@ -1182,7 +1217,12 @@ const MUT = {
     if (!d) throw new Refused('その借入は見つかりません');
     const name = strOf(b.name, 60);
     if (!name) throw new Refused('借入先の名前を入力してください');
-    Object.assign(d, { name }, debtFields(b));
+    const f = debtFields(b);
+    // 編集は「この日時点でこの残高だった」という申告し直し。起点も更新して組み直す。
+    Object.assign(d, { name }, f, {
+      originPrincipal: f.principal, originInterest: f.interestAccrued, originDate: f.accruedAt
+    });
+    rebuildDebt(d);
   },
 
   deleteDebt(id) {
@@ -1190,7 +1230,6 @@ const MUT = {
     mem.repayments = mem.repayments.filter(r => r.debtId !== id);   // ON DELETE CASCADE の代わり
   },
 
-  /** 日割りで利息を積む → まず利息へ充当 → 残りを元金から引く。 */
   addRepayment(b) {
     const d = findDebt(strOf(b.debtId, 40));
     if (!d) throw new Refused('その借入は見つかりません');
@@ -1198,29 +1237,26 @@ const MUT = {
     if (!(amount > 0)) throw new Refused('返済額は1円以上で入力してください');
 
     const date = dateOrDefault(b.date, nowISO());
-    const accrued = d.interestAccrued + accrueOn(d.principal, d.rate, daysBetweenISO(d.accruedAt, date));
-    const paidInterest = Math.min(amount, accrued);
-    const paidPrincipal = Math.min(amount - paidInterest, d.principal);
-
+    // 起点より前の返済は、申告した残高に既に含まれている。足すと二重に減る。
+    if (d.originDate && date < d.originDate) {
+      throw new Refused(
+        `この借入は ${d.originDate} 時点の残高として登録されています。` +
+        `それより前（${date}）の返済は、その残高に既に含まれているため記録できません。` +
+        `古い返済も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
+    }
     mem.repayments.push({
       id: newId(), debtId: d.id, date, amount,
-      interest: paidInterest, principal: paidPrincipal, memo: strOf(b.memo, 60)
+      interest: 0, principal: 0, memo: strOf(b.memo, 60)
     });
-    d.principal -= paidPrincipal;
-    d.interestAccrued = accrued - paidInterest;
-    // 過去の日付で記録しても起算日は戻さない。戻すと同じ期間の利息を二度積む。
-    if (date > d.accruedAt) d.accruedAt = date;
+    rebuildDebt(d);
   },
 
   deleteRepayment(id) {
     const r = mem.repayments.find(x => x.id === id);
     if (!r) return;
-    const d = findDebt(r.debtId);
-    if (d) {
-      d.principal += Math.max(0, r.principal);
-      d.interestAccrued += Math.max(0, r.interest);
-    }
     mem.repayments = mem.repayments.filter(x => x.id !== id);
+    const d = findDebt(r.debtId);
+    if (d) rebuildDebt(d);
   },
 
   addTxn(b) {
@@ -1301,8 +1337,11 @@ const MUT = {
       const id = strOf(d.id, 40) || newId();
       if (seen.has(id)) continue;
       seen.add(id);
-      debts.push(Object.assign({ id, name: strOf(d.name, 60) || '名称未設定' },
-        debtFields(d), { createdAt: dateOrDefault(d.createdAt, nowISO()) }));
+      const f = debtFields(d);
+      debts.push(Object.assign({ id, name: strOf(d.name, 60) || '名称未設定' }, f, {
+        originPrincipal: f.principal, originInterest: f.interestAccrued, originDate: f.accruedAt,
+        createdAt: dateOrDefault(d.createdAt, nowISO())
+      }));
     }
     const cards = [];
     const cardIds = new Set();
@@ -1371,8 +1410,9 @@ const MUT = {
       ['クレジット分割',    320000,  400000, 15.0, 15000, 15000]
     ].map(([name, prin, initial, rate, minPayment, pay]) => {
       const d = { id: newId(), name, principal: prin, interestAccrued: 0,
-                  accruedAt: mk(6) + '-27', initial, rate, minPayment,
-                  createdAt: mk(10) + '-01' };
+                  accruedAt: mk(6) + '-27',
+                  originPrincipal: prin, originInterest: 0, originDate: mk(6) + '-27',
+                  initial, rate, minPayment, createdAt: mk(10) + '-01' };
       mem.debts.push(d);
       return { d, pay };
     });

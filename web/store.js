@@ -25,6 +25,7 @@ const LS = {
 
 const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
+          'originPrincipal', 'originInterest', 'originDate',
           'initial', 'rate', 'minPayment', 'createdAt'],
   txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId'],
   cards: ['id', 'name', 'createdAt'],
@@ -33,7 +34,8 @@ const TABLES = {
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
-const NUMERIC = new Set(['principal', 'interestAccrued', 'initial', 'rate', 'minPayment',
+const NUMERIC = new Set(['principal', 'interestAccrued', 'originPrincipal', 'originInterest',
+                         'initial', 'rate', 'minPayment',
                          'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent',
                          'revision']);
 
