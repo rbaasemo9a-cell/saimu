@@ -2270,7 +2270,9 @@ details.tableview > div { margin-top: 8px; }
       if (res === false) { ev.preventDefault(); return; }
     }
   });
-  dlg.addEventListener('close', () => { onSubmit = null; });
+  // ここで onSubmit を消してはいけない。close は非同期に発火するので、
+  // 「閉じてすぐ次を開く」と、遅れて届いた close が次の画面の処理を消してしまう。
+  // 実際それで保存が黙って失われていた。開くたびに上書きするので後始末は不要。
 
   const numOf = (fd, k) => {
     const v = parseFloat(String(fd.get(k) || '').replace(/[^\d.\-]/g, ''));

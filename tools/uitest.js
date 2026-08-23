@@ -5,11 +5,10 @@
  * 一時ファイルを作って開く。終わったら消す。
  *   node tools/uitest.js
  *
- * 【既知の不安定さ】まれに「保存した金額が DB に入る」「保存後の画面に金額が出る」の
- * 2件が落ちる。失敗時はトーストが一度も出ておらず（toast=(なし)）、保存処理自体が
- * 走っていない。サーバーへ直接 POST すると 200 が返るのでアプリ側の不具合ではない。
- * 検証エラー表示が残ったままクリックしていたのが主因で、入力イベントを起こすように
- * して頻度は大きく下がったが、根絶はできていない。落ちたら単独で再実行して切り分けること。
+ * 以前まれに落ちていたのは、テストではなくアプリの不具合だった。
+ * <dialog> の close は非同期に発火するため、閉じた直後に別の画面を開くと、
+ * 遅れて届いた close が次の画面の保存処理（onSubmit）を消していた。
+ * 押しても黙って何も起きない、という形で表に出る。手順8がその再現。
  */
 const fs = require('fs');
 const os = require('os');
@@ -45,6 +44,20 @@ const HARNESS = `
     return false;
   };
   const txnCount = async () => (await (await fetch('/api/state')).json()).txns.length;
+
+  // 失敗したときに何が起きたかを残す。待ちを足さず、記録するだけにする。
+  const diag = { submit: 0, posts: 0, postErr: '', dlgOpen: [] };
+  const _fetch = window.fetch;
+  window.fetch = function (u, o) {
+    if (o && o.method === 'POST') {
+      diag.posts++;
+      return _fetch.apply(this, arguments)
+        .then(r => { if (!r.ok) diag.postErr = 'status ' + r.status; return r; })
+        .catch(e => { diag.postErr = String(e && e.message || e); throw e; });
+    }
+    return _fetch.apply(this, arguments);
+  };
+  document.getElementById('dlgForm').addEventListener('submit', () => { diag.submit++; }, true);
   const nav = v => { [...document.querySelectorAll('.nav-item')].find(b => b.dataset.view === v).click(); };
   const dlg = $('#dlg');
 
@@ -99,12 +112,9 @@ const HARNESS = `
     $('#dlgOk').click(); await wait(120);
     ok('金額が空なら保存では閉じない（検証が働く）', dlg.open);
     ok('検証エラーが金額欄に付く', !$('#t-amt').checkValidity());
-
     // --- 7. 正しく入れれば保存できる（SQLite に届いたかを API で確かめる） ---
     const n0 = await txnCount();
     $('#t-amt').value = '1234';
-    // 直前の手順で検証エラーを出しているので、入力イベントを起こして
-    // ブラウザ側の「無効」表示を消してから押す（人が打つのと同じ状態にする）
     $('#t-amt').dispatchEvent(new Event('input', { bubbles: true }));
     await wait(60);
     $('#dlgOk').click();
@@ -112,11 +122,30 @@ const HARNESS = `
     const saved = await waitFor(async () => (await txnCount()) === n0 + 1);
     ok('保存でダイアログが閉じる', closed);
     ok('保存した金額が DB に入る', saved,
-      '件数 ' + n0 + ' → ' + (await txnCount()) + '  toast=' + (($('#toast') || {}).textContent || '(なし)'));
+      '件数 ' + n0 + ' → ' + (await txnCount()) +
+      '  submit=' + diag.submit + ' post=' + diag.posts +
+      (diag.postErr ? ' postErr=' + diag.postErr : '') +
+      ' toast=' + (($('#toast') || {}).textContent || '(なし)'));
     ok('保存後の画面に金額が出る',
       await waitFor(async () => document.body.innerText.includes('1,234')));
 
-    // --- 8. Esc でも閉じる ---
+    // --- 8. 閉じた直後に別の画面を開いても保存できる ---
+    // close は非同期に発火する。遅れて届いた close が次の画面の保存処理を
+    // 消してしまい、押しても黙って何も起きない不具合があった。
+    const n1 = await txnCount();
+    [...document.querySelectorAll('[data-act="add-expense"]')][0].click();
+    await wait(60);
+    $('#dlgCancel').click();                       // 待たずに次を開く
+    [...document.querySelectorAll('[data-act="add-income"]')][0].click();
+    await wait(60);
+    $('#t-amt').value = '777';
+    $('#t-amt').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#dlgOk').click();
+    const savedAfterCancel = await waitFor(async () => (await txnCount()) === n1 + 1);
+    ok('キャンセル直後に開いた画面でも保存できる', savedAfterCancel,
+      '件数 ' + n1 + ' → ' + (await txnCount()) + ' submit=' + diag.submit + ' post=' + diag.posts);
+
+    // --- 9. Esc でも閉じる ---
     [...document.querySelectorAll('[data-act="add-income"]')][0].click();
     await wait(80);
     dlg.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
