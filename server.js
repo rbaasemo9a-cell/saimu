@@ -222,6 +222,17 @@ async function api(req, res, pathname) {
       if (m === 'DELETE') { db.deleteTxn(id); return ok(); }
       break;
 
+    case 'cards':
+      if (m === 'POST')   { db.addCard(body); return ok(); }
+      if (m === 'PUT')    { db.updateCard(id, body); return ok(); }
+      if (m === 'DELETE') { db.deleteCard(id); return ok(); }
+      break;
+
+    case 'cardbills':
+      if (m === 'POST')   { db.setCardBill(body); return ok(); }
+      if (m === 'DELETE') { db.deleteCardBill(id); return ok(); }
+      break;
+
     case 'goals':
       if (m === 'PUT')    { db.setGoals(body); return ok(); }
       break;

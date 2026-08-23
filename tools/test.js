@@ -155,6 +155,53 @@ ok('収支を登録できる', db.getState().txns.length === 2);
     (x.category === '食費' && x.date === '2026-08-16')).forEach(x => db.deleteTxn(x.id));
 }
 
+// クレジットカードと請求額
+{
+  const c1 = db.addCard({ name: '楽天カード' });
+  const c2 = db.addCard({ name: '三井住友VISA' });
+  ok('カードを2枚登録できる', db.getState().cards.length === 2);
+
+  let threw = 0;
+  try { db.addCard({ name: '  ' }); } catch (e) { threw++; }
+  try { db.setCardBill({ cardId: 'nope', payMonth: '2026-09', amount: 100 }); } catch (e) { threw++; }
+  try { db.setCardBill({ cardId: c1, payMonth: '2026/09', amount: 100 }); } catch (e) { threw++; }
+  ok('名前なし・宛先なし・月の形が違う請求は拒否される', threw === 3, 'threw=' + threw);
+
+  db.setCardBill({ cardId: c1, payMonth: '2026-09', amount: 86432, memo: '9月' });
+  db.setCardBill({ cardId: c1, payMonth: '2026-09', amount: 88000 });
+  const bills = db.getState().cardBills.filter(b => b.cardId === c1 && b.payMonth === '2026-09');
+  ok('同じカードの同じ月は上書きされる（重複しない）',
+    bills.length === 1 && bills[0].amount === 88000, JSON.stringify(bills));
+
+  db.addTxn({ type: 'expense', date: '2026-08-15', amount: 12000, category: '娯楽',
+              payMonth: '2026-09', cardId: c1 });
+  ok('明細にカードを紐づけられる',
+    db.getState().txns.some(t => t.cardId === c1));
+
+  db.addTxn({ type: 'expense', date: '2026-08-16', amount: 5000, category: '食費',
+              payMonth: '2026-09', cardId: 'ghost' });
+  ok('実在しないカードを指した明細は現金・口座払いに倒れる',
+    db.getState().txns.find(t => t.category === '食費' && t.date === '2026-08-16').cardId === '');
+
+  db.addTxn({ type: 'income', date: '2026-08-17', amount: 1000, category: '副業', cardId: c1 });
+  ok('収入にカードは紐づかない',
+    db.getState().txns.find(t => t.category === '副業').cardId === '');
+
+  // カードを消しても明細は残り、現金・口座払いに戻る
+  db.deleteCard(c2);
+  db.setCardBill({ cardId: c1, payMonth: '2026-10', amount: 1000 });
+  db.deleteCard(c1);
+  const after = db.getState();
+  ok('カードを消すと請求額も消える', after.cardBills.length === 0);
+  ok('カードを消しても明細は残る',
+    after.txns.some(t => t.category === '娯楽' && t.date === '2026-08-15'));
+  ok('消したカードの明細は紐づけが外れる',
+    after.txns.every(t => t.cardId === ''));
+
+  after.txns.filter(t => ['娯楽', '副業'].includes(t.category) ||
+    (t.category === '食費' && t.date === '2026-08-16')).forEach(t => db.deleteTxn(t.id));
+}
+
 // 月キーの加算 — 年をまたいでも壊れない
 {
   const cases = [['2026-08', 1, '2026-09'], ['2026-12', 1, '2027-01'],
@@ -385,15 +432,16 @@ console.log('\n現金回収と取り置き');
     grab('monthKey', 'const'),
     grab('payMonthOf', 'const'),
     grab('addMonthKey'),
+    grab('outflow'),
     grab('monthSummary'),
     grab('committedNext'),
     'return { set: s => { state = s; }, monthKey, payMonthOf, addMonthKey,',
-    '         monthSummary, committedNext };'
+    '         outflow, monthSummary, committedNext };'
   ].join(String.fromCharCode(10)))();
-  const { monthKey, payMonthOf, addMonthKey, monthSummary, committedNext } = F;
+  const { monthKey, payMonthOf, addMonthKey, outflow, monthSummary, committedNext } = F;
 
   // 現金で30,000回収し、報酬12,000を差し引いた18,000をカードで返す。
-  state = { debts: [], repayments: [], txns: [
+  state = { debts: [], repayments: [], cards: [], cardBills: [], txns: [
     { id: 'a', type: 'income',  date: '2026-08-20', amount: 30000,
       category: '配達（現金回収）', payMonth: '2026-08' },
     { id: 'b', type: 'expense', date: '2026-08-22', amount: 18000,
@@ -423,8 +471,68 @@ console.log('\n現金回収と取り置き');
     tight.net - committedNext('2026-08') < 0,
     `余力 ${tight.net} - 取り置き ${committedNext('2026-08')}`);
 
+  /* --- カードの請求額。明細と二重に数えないことが肝 --- */
+  const base = {
+    debts: [], repayments: [],
+    cards: [{ id: 'c1', name: '楽天カード' }, { id: 'c2', name: '三井住友VISA' }],
+    cardBills: [],
+    txns: [
+      { id: 'x', type: 'expense', date: '2026-08-05', amount: 20000,
+        category: '食費', payMonth: '2026-09', cardId: 'c1' },
+      { id: 'y', type: 'expense', date: '2026-08-06', amount: 3000,
+        category: '交通', payMonth: '2026-09', cardId: 'c2' },
+      { id: 'z', type: 'expense', date: '2026-08-07', amount: 50000,
+        category: '住居', payMonth: '2026-08', cardId: '' }
+    ]
+  };
+
+  // 請求額が無ければ明細の合計で代替する
+  state = JSON.parse(JSON.stringify(base));
+  F.set(state);
+  ok('請求額が無い月は明細の合計を使う',
+    monthSummary('2026-09').expensePaid === 23000,
+    String(monthSummary('2026-09').expensePaid));
+
+  // 請求額を入れたら、そのカードは請求額が正になる（明細は二重に数えない）
+  state = JSON.parse(JSON.stringify(base));
+  state.cardBills = [{ id: 'b1', cardId: 'c1', payMonth: '2026-09', amount: 31000, memo: '' }];
+  F.set(state);
+  const billed = monthSummary('2026-09');
+  ok('請求額を登録したカードは請求額が使われる（明細を足さない）',
+    billed.expensePaid === 34000, `${billed.expensePaid}（期待 31000 + 3000）`);
+  ok('内訳が請求額と明細を取り違えない',
+    billed.out.rows.find(r => r.id === 'c1').billed === true &&
+    billed.out.rows.find(r => r.id === 'c1').detail === 20000);
+  ok('請求額が未登録のカードは推定として印が付く',
+    billed.out.rows.find(r => r.id === 'c2').billed === false);
+
+  // 0円の請求は「その月は引落なし」。明細があっても0にする。
+  state.cardBills = [{ id: 'b1', cardId: 'c1', payMonth: '2026-09', amount: 0, memo: '' }];
+  F.set(state);
+  ok('請求額0円ならそのカードの引落は0',
+    monthSummary('2026-09').expensePaid === 3000,
+    String(monthSummary('2026-09').expensePaid));
+
+  // 現金・口座払いは請求額の影響を受けない
+  state.cardBills = [{ id: 'b1', cardId: 'c1', payMonth: '2026-09', amount: 31000, memo: '' }];
+  F.set(state);
+  ok('現金・口座払いは別勘定のまま',
+    monthSummary('2026-08').expensePaid === 50000,
+    String(monthSummary('2026-08').expensePaid));
+
+  // 取り置きにも請求額が効く
+  ok('取り置きは請求額を使う', committedNext('2026-08') === 34000,
+    String(committedNext('2026-08')));
+
+  // カードが消えても明細は取りこぼさない
+  state = JSON.parse(JSON.stringify(base));
+  state.cards = [];
+  F.set(state);
+  ok('消したカードに紐づく明細も引落に数える',
+    monthSummary('2026-09').expensePaid === 23000 && monthSummary('2026-09').out.orphan === 23000);
+
   // 引落月を持たない古い記録は、利用月に出ていったものとして扱う
-  state = { debts: [], repayments: [], txns: [
+  state = { debts: [], repayments: [], cards: [], cardBills: [], txns: [
     { id: 'd', type: 'expense', date: '2026-08-05', amount: 5000, category: '食費' }
   ] };
   F.set(state);

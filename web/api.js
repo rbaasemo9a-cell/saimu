@@ -20,6 +20,8 @@ function derive(st) {
         balance: d.principal + interestToday
       });
     }),
+    cards: st.cards.slice(),
+    cardBills: st.cardBills.slice(),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -88,13 +90,53 @@ const MUT = {
     if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
     const type = b.type === 'income' ? 'income' : 'expense';
     const date = dateOrDefault(b.date, nowISO());
+    const cid = type === 'income' ? '' : strOf(b.cardId, 40);
     mem.txns.push({
       id: newId(), type, date, amount,
       category: strOf(b.category, 30) || 'その他',
       memo: strOf(b.memo, 60),
       // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
-      payMonth: type === 'income' ? monthOf(date) : payMonthFor(b, date)
+      payMonth: type === 'income' ? monthOf(date) : payMonthFor(b, date),
+      cardId: mem.cards.some(c => c.id === cid) ? cid : ''
     });
+  },
+
+  addCard(b) {
+    const name = strOf(b.name, 40);
+    if (!name) throw new Refused('カードの名前を入力してください');
+    mem.cards.push({ id: newId(), name, createdAt: nowISO() });
+  },
+
+  updateCard(id, b) {
+    const c = mem.cards.find(x => x.id === id);
+    if (!c) throw new Refused('そのカードは見つかりません');
+    const name = strOf(b.name, 40);
+    if (!name) throw new Refused('カードの名前を入力してください');
+    c.name = name;
+  },
+
+  /** カードを消すと請求額も消える。明細は現金・口座払い扱いに戻す。 */
+  deleteCard(id) {
+    mem.cards = mem.cards.filter(c => c.id !== id);
+    mem.cardBills = mem.cardBills.filter(b => b.cardId !== id);
+    mem.txns.forEach(t => { if (t.cardId === id) t.cardId = ''; });
+  },
+
+  /** 1枚のカードにつき1ヶ月1件。同じ月なら上書きする。 */
+  setCardBill(b) {
+    const cardId = strOf(b.cardId, 40);
+    if (!mem.cards.some(c => c.id === cardId)) throw new Refused('そのカードは見つかりません');
+    const payMonth = strOf(b.payMonth, 7);
+    if (!ISO_MONTH.test(payMonth)) throw new Refused('引落月は YYYY-MM の形で指定してください');
+    const amount = Math.max(0, toNum(b.amount));
+    const memo = strOf(b.memo, 60);
+    const cur = mem.cardBills.find(x => x.cardId === cardId && x.payMonth === payMonth);
+    if (cur) { cur.amount = amount; cur.memo = memo; }
+    else mem.cardBills.push({ id: newId(), cardId, payMonth, amount, memo });
+  },
+
+  deleteCardBill(id) {
+    mem.cardBills = mem.cardBills.filter(b => b.id !== id);
   },
 
   deleteTxn(id) { mem.txns = mem.txns.filter(t => t.id !== id); },
@@ -109,7 +151,7 @@ const MUT = {
   },
 
   wipe() {
-    mem = { debts: [], txns: [], repayments: [],
+    mem = { debts: [], txns: [], repayments: [], cards: [], cardBills: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -124,6 +166,23 @@ const MUT = {
       debts.push(Object.assign({ id, name: strOf(d.name, 60) || '名称未設定' },
         debtFields(d), { createdAt: dateOrDefault(d.createdAt, nowISO()) }));
     }
+    const cards = [];
+    const cardIds = new Set();
+    for (const c of (p.cards || [])) {
+      const id = strOf(c.id, 40) || newId();
+      if (cardIds.has(id)) continue;
+      cardIds.add(id);
+      cards.push({ id, name: strOf(c.name, 40) || '名称未設定',
+                   createdAt: dateOrDefault(c.createdAt, nowISO()) });
+    }
+    const cardBills = [];
+    for (const b of (p.cardBills || [])) {
+      const cid = strOf(b.cardId, 40);
+      const pm = strOf(b.payMonth, 7);
+      if (!cardIds.has(cid) || !ISO_MONTH.test(pm)) continue;   // 宛先の無い請求は捨てる
+      cardBills.push({ id: strOf(b.id, 40) || newId(), cardId: cid, payMonth: pm,
+                       amount: Math.max(0, toNum(b.amount)), memo: strOf(b.memo, 60) });
+    }
     const txns = [];
     for (const t of (p.txns || [])) {
       const amount = toNum(t.amount);
@@ -133,7 +192,8 @@ const MUT = {
       txns.push({
         id: strOf(t.id, 40) || newId(), type: ttype, date: tdate, amount,
         category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60),
-        payMonth: ttype === 'income' ? monthOf(tdate) : payMonthFor(t, tdate)
+        payMonth: ttype === 'income' ? monthOf(tdate) : payMonthFor(t, tdate),
+        cardId: cardIds.has(strOf(t.cardId, 40)) ? strOf(t.cardId, 40) : ''
       });
     }
     const repayments = [];
@@ -148,7 +208,7 @@ const MUT = {
       });
     }
     const g = p.goals || {};
-    mem = { debts, txns, repayments, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -260,6 +320,15 @@ async function api(path, method, body) {
     case 'txns':
       if (m === 'POST')   return save(() => MUT.addTxn(body));
       if (m === 'DELETE') return save(() => MUT.deleteTxn(id));
+      break;
+    case 'cards':
+      if (m === 'POST')   return save(() => MUT.addCard(body));
+      if (m === 'PUT')    return save(() => MUT.updateCard(id, body));
+      if (m === 'DELETE') return save(() => MUT.deleteCard(id));
+      break;
+    case 'cardbills':
+      if (m === 'POST')   return save(() => MUT.setCardBill(body));
+      if (m === 'DELETE') return save(() => MUT.deleteCardBill(id));
       break;
     case 'goals':
       if (m === 'PUT')    return save(() => MUT.setGoals(body));

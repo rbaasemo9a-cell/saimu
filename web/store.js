@@ -26,7 +26,9 @@ const LS = {
 const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
           'initial', 'rate', 'minPayment', 'createdAt'],
-  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth'],
+  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId'],
+  cards: ['id', 'name', 'createdAt'],
+  cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
@@ -317,6 +319,8 @@ async function readAll() {
 
   return {
     debts: byTable.debts,
+    cards: byTable.cards,
+    cardBills: byTable.cardBills,
     txns: byTable.txns,
     repayments: byTable.repayments,
     goals: {
@@ -332,6 +336,7 @@ async function readAll() {
 async function writeAll(st) {
   const payload = {
     debts: st.debts, txns: st.txns, repayments: st.repayments,
+    cards: st.cards, cardBills: st.cardBills,
     goals: [st.goals],
     meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
   };

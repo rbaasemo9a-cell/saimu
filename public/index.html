@@ -699,7 +699,7 @@ details.tableview > div { margin-top: 8px; }
      2. 状態と保存
      ========================================================== */
   const blank = () => ({
-    debts: [], txns: [], repayments: [],
+    debts: [], txns: [], repayments: [], cards: [], cardBills: [],
     goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 },
     v: 1
   });
@@ -906,6 +906,43 @@ details.tableview > div { margin-top: 8px; }
      4. 集計
      ========================================================== */
   /**
+   * その月に口座から出ていく額の内訳。
+   * カードは、請求額の登録があればそれを正とする（明細を全部入れなくても正しくなる）。
+   * 登録が無い月だけ、明細の合計で代替する。両方を足すと二重計上になるので必ずどちらか。
+   * usedBy を渡すと「その月までに使った分」だけを明細から拾う（取り置きの計算用）。
+   */
+  function outflow(key, usedBy) {
+    let cash = 0;
+    const byCard = {};
+    state.txns.forEach(t => {
+      if (t.type !== 'expense' || payMonthOf(t) !== key) return;
+      if (usedBy && monthKey(t.date) > usedBy) return;
+      if (t.cardId) byCard[t.cardId] = (byCard[t.cardId] || 0) + t.amount;
+      else cash += t.amount;
+    });
+
+    const bills = {};
+    state.cardBills.forEach(b => { if (b.payMonth === key) bills[b.cardId] = b.amount; });
+
+    const rows = state.cards.map(c => {
+      const billed = Object.prototype.hasOwnProperty.call(bills, c.id);
+      return {
+        id: c.id, name: c.name, billed,
+        amount: billed ? bills[c.id] : (byCard[c.id] || 0),
+        detail: byCard[c.id] || 0
+      };
+    });
+    // 消したカードに紐づいたままの明細も取りこぼさない
+    let orphan = 0;
+    Object.keys(byCard).forEach(id => {
+      if (!state.cards.some(c => c.id === id)) orphan += byCard[id];
+    });
+
+    const card = rows.reduce((a, r) => a + r.amount, 0) + orphan;
+    return { cash, card, orphan, rows, total: cash + card };
+  }
+
+  /**
    * 月次の集計。支出は2つの見方を持つ。
    *   expense     発生ベース … 使った月。「今月いくら使ったか」を見るための数字。
    *   expensePaid 引落ベース … 実際に口座から出ていく月。カード払いは翌月に回る。
@@ -915,18 +952,18 @@ details.tableview > div { margin-top: 8px; }
     let income = 0, expense = 0, expensePaid = 0, deferred = 0;
     state.txns.forEach(t => {
       const used = monthKey(t.date) === key;
-      const paid = payMonthOf(t) === key;
       if (t.type === 'income') { if (used) income += t.amount; return; }
       if (used) {
         expense += t.amount;
         if (payMonthOf(t) !== key) deferred += t.amount;   // 今月使ったが翌月以降に出ていく分
       }
-      if (paid) expensePaid += t.amount;
     });
+    const out = outflow(key);
+    expensePaid = out.total;
     const repay = state.repayments
       .filter(r => monthKey(r.date) === key)
       .reduce((s, r) => s + r.amount, 0);
-    return { key, income, expense, expensePaid, deferred, repay,
+    return { key, income, expense, expensePaid, deferred, repay, out,
              net: income - expensePaid - repay };
   }
 
@@ -936,10 +973,7 @@ details.tableview > div { margin-top: 8px; }
    * これを見せないと「使い切って翌月払えない」が起きる。
    */
   function committedNext(key) {
-    const nextKey = addMonthKey(key, 1);
-    return state.txns
-      .filter(t => t.type === 'expense' && payMonthOf(t) === nextKey && monthKey(t.date) <= key)
-      .reduce((s, t) => s + t.amount, 0);
+    return outflow(addMonthKey(key, 1), key).total;
   }
 
   /** その月に引き落とされる額のうち、前の月までに使った分（＝カード払いの繰越）。 */
@@ -948,6 +982,8 @@ details.tableview > div { margin-top: 8px; }
       .filter(t => t.type === 'expense' && payMonthOf(t) === key && monthKey(t.date) !== key)
       .reduce((s, t) => s + t.amount, 0);
   }
+
+  const cardName = id => (state.cards.find(c => c.id === id) || {}).name || '';
 
   /** 直近 n ヶ月（当月を含む）のキー配列 */
   function recentMonths(n) {
@@ -1635,6 +1671,8 @@ details.tableview > div { margin-top: 8px; }
     const nextKey = addMonthKey(cashMonth, 1);
     const nextS = monthSummary(nextKey);
     const committed = committedNext(cashMonth);
+    const out = s.out;
+    const nextOut = nextS.out;
 
     root.innerHTML =
       headHTML('収入・支出', '毎月の手取り収入と生活支出を記録します。返済は別集計なので二重に数えられません。カード払いは<b>口座から出ていく月</b>で数えるので、<b>収入 − 引落 − 返済 = 返済に回せる余力</b>が実態どおりになります。') +
@@ -1690,6 +1728,43 @@ details.tableview > div { margin-top: 8px; }
        </div>
 
        <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>カードの引落</h2>
+           <span class="hint">${esc(cashMonth)} に口座から出る分</span></div>
+         <div class="panel-body">
+           ${state.cards.length ? `<div class="table-wrap"><table class="ledger">
+             <thead><tr><th>カード</th><th class="r">引落額</th><th>出どころ</th><th></th></tr></thead>
+             <tbody>${out.rows.map(r => `<tr>
+               <td>${esc(r.name)}</td>
+               <td class="r">${yen(r.amount)}</td>
+               <td>${r.billed
+                 ? '<span class="pill ok">請求額を登録済み</span>'
+                 : r.detail > 0
+                   ? '<span class="pill warn">明細から推定</span>'
+                   : '<span class="pill flat">なし</span>'}</td>
+               <td class="r">
+                 <button class="btn sm" data-act="card-bill" data-id="${r.id}">請求額</button>
+                 <button class="btn sm" data-act="edit-card" data-id="${r.id}">編集</button>
+               </td></tr>`).join('')}</tbody>
+             ${out.orphan > 0 ? `<tfoot><tr><td>（削除したカードの明細）</td>
+               <td class="r">${yen(out.orphan)}</td><td colspan="2"></td></tr></tfoot>` : ''}
+           </table></div>`
+           : `<p style="color:var(--ink-3);font-size:13px">カードを登録すると、請求額を月ごとに入れられます。明細を1件ずつ入れなくても取り置きが正しくなります。</p>`}
+           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+             <button class="btn" data-act="add-card">${ICON.plus}カードを追加</button>
+           </div>
+           ${out.rows.some(r => !r.billed && r.detail > 0) ? `
+             <p class="note" style="margin-top:10px">請求額が未登録のカードは、入力済みの明細の合計で代用しています。実際の請求額を入れると正確になります。</p>` : ''}
+           ${state.cards.length && nextOut.card > 0 ? `
+             <div class="calc-note" style="margin-top:12px">
+               <div><b>翌月（${nextKey.replace('-', '年')}月）の引落は ${yen(nextOut.card)}</b></div>
+               ${nextOut.rows.filter(r => r.amount > 0).map(r =>
+                 `<div style="color:var(--ink-2)">${esc(r.name)} ${yen(r.amount)}${r.billed ? '' : '（明細から推定）'}</div>`).join('')}
+               <div style="color:var(--ink-3);margin-top:4px">対象月を ${nextKey.replace('-', '年')}月 に切り替えると、その月の請求額を登録できます。</div>
+             </div>` : ''}
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
          <div class="panel-head"><h2>${esc(cashMonth)} の明細</h2><span class="hint">${rows.length}件</span></div>
          <div class="panel-body">
            ${rows.length ? `<div class="table-wrap"><table class="ledger">
@@ -1699,7 +1774,7 @@ details.tableview > div { margin-top: 8px; }
                <td>${t.type === 'income'
                  ? '<span class="pill ok">収入</span>'
                  : payMonthOf(t) !== monthKey(t.date)
-                   ? `<span class="pill warn" title="${esc(payMonthOf(t))} に口座から出ていきます">カード</span>`
+                   ? `<span class="pill warn" title="${esc(payMonthOf(t))} に口座から出ていきます">${esc(cardName(t.cardId) || 'カード')}</span>`
                    : '<span class="pill flat">支出</span>'}</td>
                <td>${esc(t.category)}</td>
                <td class="r ${t.type === 'income' ? 'amt-pos' : ''}">${t.type === 'income' ? '+' : '−'}${yen0(t.amount)}</td>
@@ -2117,6 +2192,8 @@ details.tableview > div { margin-top: 8px; }
     document.getElementById('dlgTitle').textContent = title;
     document.getElementById('dlgLede').textContent = lede || '';
     document.getElementById('dlgBody').innerHTML = body;
+    // フッターは使い回しなので、前のダイアログが足したボタンを必ず取り除く
+    document.querySelectorAll('.dlg-foot [data-injected]').forEach(el => el.remove());
     document.getElementById('dlgOk').textContent = ok || '保存';
     onSubmit = onOk;
     dlg.showModal();
@@ -2304,23 +2381,39 @@ details.tableview > div { margin-top: 8px; }
         <div class="field"><label for="t-memo">メモ</label>
           <input type="text" id="t-memo" name="memo" maxlength="60" placeholder="任意"></div>
         ${type === 'expense' ? `
-        <div class="field full"><label for="t-pay">口座から出ていくのは</label>
+        <div class="field"><label for="t-pay">口座から出ていくのは</label>
           <select id="t-pay" name="payOffset">
             <option value="0">今月（現金・口座引落・デビット）</option>
             <option value="1">来月（クレジットカード）</option>
-          </select>
-          <span class="note" id="t-paynote"></span></div>` : ''}
+          </select></div>
+        <div class="field" id="t-cardwrap" hidden><label for="t-card">どのカードか</label>
+          <select id="t-card" name="cardId">
+            <option value="">指定しない</option>
+            ${state.cards.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+          </select></div>
+        <div class="full"><span class="note" id="t-paynote"></span></div>` : ''}
       </div>`,
       onOpen: type === 'expense' ? () => {
         const dateEl = document.getElementById('t-date');
         const payEl = document.getElementById('t-pay');
         const note = document.getElementById('t-paynote');
+        const wrap = document.getElementById('t-cardwrap');
+        const cardEl = document.getElementById('t-card');
         const upd = () => {
+          const card = (+payEl.value || 0) > 0;
+          wrap.hidden = !card;
           const m = addMonthKey(monthKey(dateEl.value || todayISO()), +payEl.value || 0);
-          note.textContent = m.replace('-', '年') + '月の支出として集計します';
+          const label = m.replace('-', '年') + '月に口座から出ていきます';
+          // 請求額を登録しているカードなら、この明細は内訳であって二重に数えない
+          const billed = card && cardEl.value &&
+            state.cardBills.some(b => b.cardId === cardEl.value && b.payMonth === m);
+          note.textContent = billed
+            ? label + '。このカードは請求額を登録済みなので、この明細は内訳として扱います'
+            : label;
         };
         dateEl.addEventListener('change', upd);
         payEl.addEventListener('change', upd);
+        cardEl.addEventListener('change', upd);
         upd();
       } : undefined,
       onOk: fd => {
@@ -2332,8 +2425,76 @@ details.tableview > div { margin-top: 8px; }
           type, date, amount,
           category: String(fd.get('category') || 'その他'),
           memo: String(fd.get('memo') || '').trim(),
-          payMonth: addMonthKey(monthKey(date), +(fd.get('payOffset') || 0))
+          payMonth: addMonthKey(monthKey(date), +(fd.get('payOffset') || 0)),
+          cardId: +(fd.get('payOffset') || 0) > 0 ? String(fd.get('cardId') || '') : ''
         }, label + 'を追加しました');
+      }
+    });
+  }
+
+  function cardDialog(id) {
+    const c = id ? state.cards.find(x => x.id === id) : null;
+    openDialog({
+      title: c ? 'カードを編集' : 'カードを追加',
+      lede: c ? '' : '請求額を月ごとに登録できるようになります。',
+      body: `<div class="form-grid">
+        <div class="field full"><label for="c-name">カードの名前</label>
+          <input type="text" id="c-name" name="name" required maxlength="40"
+                 placeholder="例：楽天カード" value="${c ? esc(c.name) : ''}"></div>
+      </div>`,
+      onOpen: c ? () => {
+        // 編集のときだけ削除も出す。カードを消しても明細は残り、現金・口座払いに戻る。
+        const foot = document.querySelector('.dlg-foot');
+        if (!foot) return;
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn danger'; b.textContent = 'このカードを削除';
+        b.dataset.injected = '1';
+        b.addEventListener('click', () => {
+          dlg.close('cancel');
+          confirmDialog('カードを削除',
+            `「${c.name}」と、登録した請求額をすべて削除します。` +
+            'このカードで払った記録は残り、現金・口座払いとして数えられます。',
+            () => commit('/cards/' + c.id, 'DELETE', undefined, 'カードを削除しました'));
+        });
+        foot.insertBefore(b, foot.firstChild);
+      } : undefined,
+      onOk: fd => {
+        const name = String(fd.get('name') || '').trim();
+        if (!name) return false;
+        if (c) commit('/cards/' + c.id, 'PUT', { name }, 'カードを更新しました');
+        else commit('/cards', 'POST', { name }, 'カードを追加しました');
+      }
+    });
+  }
+
+  function cardBillDialog(cardId) {
+    const c = state.cards.find(x => x.id === cardId);
+    if (!c) return;
+    const cur = state.cardBills.find(b => b.cardId === cardId && b.payMonth === cashMonth);
+    const est = (monthSummary(cashMonth).out.rows.find(r => r.id === cardId) || {}).detail || 0;
+    openDialog({
+      title: '請求額を登録', lede: `${c.name}　${cashMonth.replace('-', '年')}月の引落`,
+      body: `<div class="form-grid">
+        <div class="field"><label for="b-month">引落月</label>
+          <input type="month" id="b-month" name="payMonth" required value="${esc(cashMonth)}"></div>
+        <div class="field"><label for="b-amt">請求額（円）</label>
+          <input type="number" id="b-amt" name="amount" required min="0" step="1"
+                 value="${cur ? Math.round(cur.amount) : ''}"></div>
+        <div class="field full"><label for="b-memo">メモ</label>
+          <input type="text" id="b-memo" name="memo" maxlength="60" placeholder="任意"
+                 value="${cur ? esc(cur.memo) : ''}"></div>
+        <div class="full"><div class="calc-note">
+          <div>入力済みの明細の合計は <b>${yen(est)}</b> です。</div>
+          <div style="color:var(--ink-3);margin-top:4px">請求額を登録すると、その月はこの額が引落として使われます（明細は内訳扱いになり、二重には数えません）。</div>
+        </div></div>
+      </div>`,
+      onOk: fd => {
+        const amount = numOf(fd, 'amount');
+        if (amount < 0) return false;
+        commit('/cardbills', 'POST', {
+          cardId, payMonth: String(fd.get('payMonth') || cashMonth),
+          amount, memo: String(fd.get('memo') || '').trim()
+        }, '請求額を登録しました');
       }
     });
   }
@@ -2441,6 +2602,9 @@ details.tableview > div { margin-top: 8px; }
       case 'pay':        payDialog(id); break;
       case 'add-income': txnDialog('income'); break;
       case 'add-expense':txnDialog('expense'); break;
+      case 'add-card':   cardDialog(null); break;
+      case 'edit-card':  cardDialog(id); break;
+      case 'card-bill':  cardBillDialog(id); break;
       case 'edit-goals': goalsDialog(); break;
       case 'export':     exportData(); break;
       case 'copy':       copyData(); break;

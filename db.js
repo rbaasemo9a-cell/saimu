@@ -49,6 +49,24 @@ CREATE TABLE IF NOT EXISTS repayments (
   memo      TEXT NOT NULL DEFAULT ''
 );
 
+-- 使っているクレジットカード
+CREATE TABLE IF NOT EXISTS cards (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+-- カード会社からの請求額。「この月に口座からいくら引き落とされるか」の正解。
+-- 明細を1件ずつ入れなくても、ここに実額を入れれば取り置きが正しくなる。
+CREATE TABLE IF NOT EXISTS card_bills (
+  id        TEXT PRIMARY KEY,
+  card_id   TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+  pay_month TEXT NOT NULL,
+  amount    REAL NOT NULL CHECK(amount >= 0),
+  memo      TEXT NOT NULL DEFAULT '',
+  UNIQUE(card_id, pay_month)
+);
+
 CREATE TABLE IF NOT EXISTS goals (
   id                INTEGER PRIMARY KEY CHECK(id = 1),
   target_date       TEXT NOT NULL DEFAULT '',
@@ -177,6 +195,13 @@ function accrue(d, toISO) {
   console.log('[db] 収支 ' + n + ' 件に引落月を補いました');
 })();
 
+/** どのカードで払ったかを持てるようにする。空欄は現金・口座払い、または未指定のカード。 */
+(function migrateTxnCard() {
+  const cols = new Set(db.prepare('PRAGMA table_info(txns)').all().map(c => c.name));
+  if (cols.has('card_id')) return;
+  db.exec(`ALTER TABLE txns ADD COLUMN card_id TEXT NOT NULL DEFAULT ''`);
+})();
+
 /* ---------- 読み取り ---------- */
 
 const Q = {
@@ -185,8 +210,13 @@ const Q = {
                             min_payment AS minPayment, created_at AS createdAt
                      FROM debts ORDER BY created_at, rowid`),
   txns: db.prepare(`SELECT id, type, date, amount, category, memo,
-                           pay_month AS payMonth
+                           pay_month AS payMonth, card_id AS cardId
                     FROM txns ORDER BY date DESC, rowid DESC`),
+  cards: db.prepare(`SELECT id, name, created_at AS createdAt
+                     FROM cards ORDER BY created_at, rowid`),
+  cardBills: db.prepare(`SELECT id, card_id AS cardId, pay_month AS payMonth, amount, memo
+                         FROM card_bills ORDER BY pay_month DESC, rowid`),
+  card: db.prepare('SELECT * FROM cards WHERE id = ?'),
   reps: db.prepare(`SELECT id, debt_id AS debtId, date, amount, interest, principal, memo
                     FROM repayments ORDER BY date DESC, rowid DESC`),
   goals: db.prepare(`SELECT target_date AS targetDate, monthly_repay AS monthlyRepay,
@@ -217,6 +247,8 @@ function getState() {
   const today = localToday();
   return {
     debts: Q.debts.all().map(d => asOfToday(d, today)),
+    cards: Q.cards.all(),
+    cardBills: Q.cardBills.all(),
     txns: Q.txns.all(),
     repayments: Q.reps.all(),
     goals: Q.goals.get() || { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 }
@@ -328,14 +360,64 @@ function addTxn(b) {
   const id = uid();
   // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
   const payMonth = type === 'income' ? monthOf(date) : payMonthOf(b, date);
-  db.prepare(`INSERT INTO txns (id, type, date, amount, category, memo, pay_month)
-              VALUES (?,?,?,?,?,?,?)`)
-    .run(id, type, date, amount, str(b.category, 30) || 'その他', str(b.memo, 60), payMonth);
+  // 実在しないカードを指していたら現金・口座払いに倒す
+  const cardId = type === 'income' ? '' : str(b.cardId, 40);
+  const card = cardId && Q.card.get(cardId) ? cardId : '';
+  db.prepare(`INSERT INTO txns (id, type, date, amount, category, memo, pay_month, card_id)
+              VALUES (?,?,?,?,?,?,?,?)`)
+    .run(id, type, date, amount, str(b.category, 30) || 'その他', str(b.memo, 60), payMonth, card);
   return id;
 }
 
 function deleteTxn(id) {
   db.prepare('DELETE FROM txns WHERE id = ?').run(id);
+}
+
+/* ---------- クレジットカード ---------- */
+
+function addCard(b) {
+  const name = str(b.name, 40);
+  if (!name) throw new BadRequest('カードの名前を入力してください');
+  const id = uid();
+  db.prepare('INSERT INTO cards (id, name, created_at) VALUES (?,?,?)')
+    .run(id, name, localToday());
+  return id;
+}
+
+function updateCard(id, b) {
+  if (!Q.card.get(id)) throw new BadRequest('そのカードは見つかりません');
+  const name = str(b.name, 40);
+  if (!name) throw new BadRequest('カードの名前を入力してください');
+  db.prepare('UPDATE cards SET name = ? WHERE id = ?').run(name, id);
+}
+
+/** カードを消すと請求額も消える。明細側は現金・口座払い扱いに戻す。 */
+function deleteCard(id) {
+  tx(() => {
+    db.prepare("UPDATE txns SET card_id = '' WHERE card_id = ?").run(id);
+    db.prepare('DELETE FROM cards WHERE id = ?').run(id);
+  });
+}
+
+/**
+ * 請求額の登録。1枚のカードにつき1ヶ月1件なので、同じ月なら上書きする。
+ * 0円を入れると「その月は請求なし」として扱われ、明細からの推定も止まる。
+ */
+function setCardBill(b) {
+  const cardId = str(b.cardId, 40);
+  if (!Q.card.get(cardId)) throw new BadRequest('そのカードは見つかりません');
+  const payMonth = str(b.payMonth, 7);
+  if (!ISO_MONTH.test(payMonth)) throw new BadRequest('引落月は YYYY-MM の形で指定してください');
+  const amount = Math.max(0, num(b.amount));
+  db.prepare(`INSERT INTO card_bills (id, card_id, pay_month, amount, memo)
+              VALUES (?,?,?,?,?)
+              ON CONFLICT(card_id, pay_month)
+              DO UPDATE SET amount = excluded.amount, memo = excluded.memo`)
+    .run(uid(), cardId, payMonth, amount, str(b.memo, 60));
+}
+
+function deleteCardBill(id) {
+  db.prepare('DELETE FROM card_bills WHERE id = ?').run(id);
 }
 
 /* ---------- 目標 ---------- */
@@ -351,7 +433,7 @@ function setGoals(b) {
 
 function wipe() {
   tx(() => {
-    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts;');
+    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts; DELETE FROM cards;');
     db.prepare(`UPDATE goals SET target_date='', monthly_repay=0, emergency=0, emergency_current=0
                 WHERE id=1`).run();
   });
@@ -361,7 +443,24 @@ function wipe() {
 function importState(p) {
   if (!p || !Array.isArray(p.debts)) throw new BadRequest('バックアップの形式が違います');
   tx(() => {
-    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts;');
+    db.exec('DELETE FROM repayments; DELETE FROM txns; DELETE FROM debts; DELETE FROM cards;');
+
+    const insC = db.prepare('INSERT OR IGNORE INTO cards (id,name,created_at) VALUES (?,?,?)');
+    const cardIds = new Set();
+    for (const c of (p.cards || [])) {
+      const id = str(c.id, 40) || uid();
+      if (cardIds.has(id)) continue;
+      cardIds.add(id);
+      insC.run(id, str(c.name, 40) || '名称未設定', dateOr(c.createdAt, localToday()));
+    }
+    const insB = db.prepare(`INSERT OR IGNORE INTO card_bills (id,card_id,pay_month,amount,memo)
+                             VALUES (?,?,?,?,?)`);
+    for (const b of (p.cardBills || [])) {
+      const cid = str(b.cardId, 40);
+      const pm = str(b.payMonth, 7);
+      if (!cardIds.has(cid) || !ISO_MONTH.test(pm)) continue;   // 宛先の無い請求は捨てる
+      insB.run(str(b.id, 40) || uid(), cid, pm, Math.max(0, num(b.amount)), str(b.memo, 60));
+    }
 
     const insD = db.prepare(`INSERT INTO debts (id,name,principal,interest_accrued,accrued_at,
                                                 initial,rate,min_payment,created_at)
@@ -376,16 +475,18 @@ function importState(p) {
                f.initial, f.rate, f.minPayment, dateOr(d.createdAt, localToday()));
     }
 
-    const insT = db.prepare(`INSERT OR IGNORE INTO txns (id,type,date,amount,category,memo,pay_month)
-                             VALUES (?,?,?,?,?,?,?)`);
+    const insT = db.prepare(`INSERT OR IGNORE INTO txns (id,type,date,amount,category,memo,pay_month,card_id)
+                             VALUES (?,?,?,?,?,?,?,?)`);
     for (const t of (p.txns || [])) {
       const amt = num(t.amount);
       if (!(amt > 0)) continue;
       const type = t.type === 'income' ? 'income' : 'expense';
       const date = dateOr(t.date, localToday());
+      const cid = type === 'income' ? '' : str(t.cardId, 40);
       insT.run(str(t.id, 40) || uid(), type, date, amt,
                str(t.category, 30) || 'その他', str(t.memo, 60),
-               type === 'income' ? monthOf(date) : payMonthOf(t, date));
+               type === 'income' ? monthOf(date) : payMonthOf(t, date),
+               cardIds.has(cid) ? cid : '');
     }
 
     const insR = db.prepare(`INSERT OR IGNORE INTO repayments (id,debt_id,date,amount,interest,principal,memo)
@@ -501,6 +602,7 @@ function stats() {
 module.exports = {
   DB_PATH, BadRequest, DAY_BASIS, daysBetween, addMonthKey,
   getState, stats,
+  addCard, updateCard, deleteCard, setCardBill, deleteCardBill,
   addDebt, updateDebt, deleteDebt,
   addRepayment, deleteRepayment,
   addTxn, deleteTxn,

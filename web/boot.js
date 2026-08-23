@@ -88,7 +88,7 @@ async function afterSignIn() {
 
 async function boot() {
   online = false;
-  mem = { debts: [], txns: [], repayments: [],
+  mem = { debts: [], txns: [], repayments: [], cards: [], cardBills: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
   render();
