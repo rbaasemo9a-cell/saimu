@@ -887,16 +887,22 @@ details.tableview > div { margin-top: 8px; }
     };
   }
 
+  /**
+   * この家計で使う返済方式。残高の小さい借入から順に完済していく雪だるま式。
+   * 完済予定日も必要返済額も、実際に払う方式で計算しないと意味がない。
+   */
+  const PLAN = 'snowball';
+
   /** 目標期間内に完済するのに必要な月額返済を二分探索で求める */
   function requiredBudget(targetMonths) {
     if (targetMonths <= 0) return null;
     const tb = totalBalance();
     if (tb <= 0) return 0;
     let lo = 0, hi = tb * 1.5 + 10000;
-    if (!simulate(hi, 'avalanche').payoffMonths) return null;
+    if (!simulate(hi, PLAN).payoffMonths) return null;
     for (let i = 0; i < 44; i++) {
       const mid = (lo + hi) / 2;
-      const r = simulate(mid, 'avalanche');
+      const r = simulate(mid, PLAN);
       if (r.payoffMonths && r.payoffMonths <= targetMonths) hi = mid; else lo = mid;
     }
     return Math.ceil(hi / 100) * 100;
@@ -1412,7 +1418,7 @@ details.tableview > div { margin-top: 8px; }
     }
 
     const budget = plannedBudget();
-    const sim = simulate(budget, 'avalanche');
+    const sim = simulate(budget, PLAN);
     const payoffDate = sim.payoffMonths ? fmtMonth(addMonths(new Date(), sim.payoffMonths)) : null;
     const mk = thisMonth();
     const ms = monthSummary(mk);
@@ -1583,7 +1589,7 @@ details.tableview > div { margin-top: 8px; }
   /* ---------- 借入・返済 ---------- */
   V.debts = function () {
     const root = document.getElementById('view-debts');
-    const sim = simulate(plannedBudget(), 'avalanche');
+    const sim = simulate(plannedBudget(), PLAN);
 
     const cards = state.debts.map((d, i) => {
       const int = monthlyInterest(d);
@@ -1839,7 +1845,7 @@ details.tableview > div { margin-top: 8px; }
             ? `<div class="callout info" style="margin-top:13px">${ICON.info}<div>収入と支出を記録すると、必要な返済額 <b>${yen(need)}</b> に対して余力が足りているかを判定できます。</div></div>`
             : gap > 0
             ? (() => {
-                const at = simulate(cap, 'avalanche').payoffMonths;
+                const at = simulate(cap, PLAN).payoffMonths;
                 const alt = at
                   ? `今の余力のままなら完済は <b>${fmtMonth(addMonths(new Date(), at))}</b> 頃です。目標日をそこまで延ばすか、支出を見直して返済に回す額を増やしてください。`
                   : `今の余力のままでは残高が減りません。支出の見直しか、金利の低い借入への借り換えを検討してください。`;
@@ -1920,13 +1926,19 @@ details.tableview > div { margin-top: 8px; }
 
   function computeStrategies(budget) {
     return [
-      { name: '高金利優先（雪崩式）', color: SERIES(0), r: simulate(budget, 'avalanche'),
-        desc: '金利の高い借入から集中して返す。支払う利息が最も少なくなる。' },
-      { name: '少額優先（雪だるま式）', color: SERIES(1), r: simulate(budget, 'snowball'),
-        desc: '残高の小さい借入から完済する。1件ずつ完済できるので手応えが続きやすい。' },
-      { name: '最低返済のみ', color: SERIES(2), r: simulate(0, 'minimum'),
-        desc: '毎月の最低返済額だけを払い続けた場合の基準線。' }
+      { key: 'plan', name: '少額優先（雪だるま式）', color: SERIES(1), r: simulate(budget, 'snowball'),
+        desc: '残高の小さい借入から完済する。この方式で完済予定日を計算しています。' },
+      { key: 'minimum', name: '最低返済のみ', color: SERIES(2), r: simulate(0, 'minimum'),
+        desc: '毎月の最低返済額だけを払い続けた場合の基準線。' },
+      { key: 'reference', name: '高金利優先（雪崩式・参考）', color: SERIES(0), r: simulate(budget, 'avalanche'),
+        desc: '金利の高い借入から返した場合。利息は少なく済むが、この家計では採用していない。' }
     ];
+  }
+
+  /** 並び順に依存せず取り出す。順番を変えて壊れたことがあるので位置では引かない。 */
+  function pick(sts, key) {
+    const found = sts.find(s => s.key === key);
+    return found ? found.r : null;
   }
 
   function simCardsHTML(sts) {
@@ -1953,7 +1965,7 @@ details.tableview > div { margin-top: 8px; }
   }
 
   function simCalloutHTML(sts) {
-    const av = sts[0].r, mn = sts[2].r;
+    const av = pick(sts, 'plan'), mn = pick(sts, 'minimum');
     if (av.payoffMonths == null) {
       return `<div class="callout crit">${ICON.crit}<div>この返済額では残高が減りません。最低返済額の合計を下回っていないか、金利が高すぎないかを確認してください。</div></div>`;
     }
@@ -1965,11 +1977,11 @@ details.tableview > div { margin-top: 8px; }
     if (saved <= 0 && faster <= 0) {
       return `<div class="callout info">${ICON.info}<div>上乗せ分がゼロのため、最低返済のみの場合と同じ結果になります。スライダーを動かすと効果が見えます。</div></div>`;
     }
-    return `<div class="callout info">${ICON.info}<div>この返済額で高金利優先を続けると、最低返済のみの場合に比べて利息を <b>${yen(saved)}</b> 節約でき、完済が <b>${durationText(faster)}</b> 早まります。</div></div>`;
+    return `<div class="callout info">${ICON.info}<div>この返済額なら、最低返済のみの場合に比べて利息を <b>${yen(saved)}</b> 節約でき、完済が <b>${durationText(faster)}</b> 早まります。</div></div>`;
   }
 
   function simTableHTML(sts) {
-    const mn = sts[2].r;
+    const mn = pick(sts, 'minimum');
     return `<div class="table-wrap"><table class="ledger">
       <thead><tr><th>戦略</th><th class="r">完済まで</th><th class="r">完済予定</th><th class="r">支払う利息</th><th class="r">最低返済のみとの差</th></tr></thead>
       <tbody>${sts.map(s => {
@@ -2017,21 +2029,23 @@ details.tableview > div { margin-top: 8px; }
     const sumMin = totalMinPayment();
 
     if (totalBalance() <= 0) {
-      root.innerHTML = headHTML('シミュレーション', '返済戦略ごとに、完済までの期間と支払う利息の総額を比較します。') +
+      root.innerHTML = headHTML('シミュレーション', '<b>雪だるま式</b>（残高の小さい借入から完済する方式）で計算しています。毎月いくら返せるかで、完済時期と利息がどれだけ変わるかを試せます。') +
         `<div class="empty"><h3>比較する借入がありません</h3>
-          <p>残高のある借入を登録すると、「高金利優先」「少額優先」「最低返済のみ」の3つを比較できます。</p>
+          <p>残高のある借入を登録すると、毎月の返済額を動かして完済時期を試せます。</p>
           <button class="btn primary" data-act="add-debt">${ICON.plus}借入を登録する</button></div>`;
       return;
     }
 
     if (simExtra == null) simExtra = Math.max(0, Math.round((plannedBudget() - sumMin) / 1000) * 1000);
-    const maxExtra = Math.max(50000, Math.ceil(sumMin / 1000) * 1000);
+    // 毎月の返済額の上限。上乗せではなく「合計でいくらまで試せるか」で決める。
+    const BUDGET_CAP = 500000;
+    const maxExtra = Math.max(10000, BUDGET_CAP - sumMin);
     simExtra = clamp(simExtra, 0, maxExtra);
 
     let sts = computeStrategies(sumMin + simExtra);
 
     root.innerHTML =
-      headHTML('シミュレーション', '毎月いくら返すかで、完済時期と支払う利息の総額がどれだけ変わるかを比較します。スライダーで上乗せ額を動かしてみてください。') +
+      headHTML('シミュレーション', '<b>雪だるま式</b>で計算しています。残高の小さい借入から順に完済していく方式です。スライダーで毎月の返済額を動かすと、完済時期と支払う利息がどう変わるか見られます。') +
 
       `<div class="panel">
          <div class="panel-head"><h2>毎月の返済額</h2>
@@ -2044,7 +2058,8 @@ details.tableview > div { margin-top: 8px; }
            <input type="range" id="extra" min="0" max="${maxExtra}" step="1000" value="${simExtra}"
              aria-label="毎月の上乗せ返済額">
            <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-3);margin-top:2px">
-             <span class="num">+0</span><span class="num">+${yen0(maxExtra)}</span>
+             <span class="num">+0（${yen0(sumMin)}）</span>
+             <span class="num">+${yen0(maxExtra)}（${yen0(sumMin + maxExtra)}）</span>
            </div>
            <div id="simCallout" style="margin-top:14px">${simCalloutHTML(sts)}</div>
          </div>
@@ -2064,7 +2079,7 @@ details.tableview > div { margin-top: 8px; }
        <div class="panel" style="margin-top:16px">
          <div class="panel-head"><h2>高金利優先で返した場合の完済順</h2>
            <span class="hint">先に完済する借入から</span></div>
-         <div class="panel-body" id="sim-order">${simOrderHTML(sts[0].r)}</div>
+         <div class="panel-body" id="sim-order">${simOrderHTML(pick(sts, 'plan'))}</div>
        </div>`;
 
     drawSimChart(sts);
@@ -2078,7 +2093,7 @@ details.tableview > div { margin-top: 8px; }
       document.getElementById('simCallout').innerHTML = simCalloutHTML(sts);
       document.getElementById('sim-cards').innerHTML = simCardsHTML(sts);
       document.getElementById('sim-table').innerHTML = simTableHTML(sts);
-      document.getElementById('sim-order').innerHTML = simOrderHTML(sts[0].r);
+      document.getElementById('sim-order').innerHTML = simOrderHTML(pick(sts, 'plan'));
       if (withChart) drawSimChart(sts);
     };
     slider.addEventListener('input', () => { simExtra = +slider.value; refresh(false); });

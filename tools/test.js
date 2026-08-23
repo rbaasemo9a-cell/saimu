@@ -330,6 +330,7 @@ const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   }
 
 const MAXM = 600;
+const PLAN = 'snowball';        // 画面側と同じ、計画に使う返済方式
 const DAY_BASIS = 365;
 let state = { debts: [] };
 const totalBalance = () => state.debts.reduce((s, d) => s + Math.max(0, d.balance), 0);
@@ -542,8 +543,46 @@ console.log('\n現金回収と取り置き');
     addMonthKey('2026-12', 1) === '2027-01' && addMonthKey('2026-01', -1) === '2025-12');
 }
 
-state = { debts: [] };
-ok('借入なし → 0ヶ月', simulate(50000, 'avalanche').payoffMonths === 0);
+/* ---------- 計画は雪だるま式に固定 ---------- */
+{
+  ok('計画に使う方式が雪だるま式で定義されている', src.includes("const PLAN = 'snowball';"));
+  // 計画に使う呼び出しはすべて PLAN 経由。比較表だけは意図的に方式を名指しする。
+  const planCalls = ['simulate(hi, PLAN)', 'simulate(mid, PLAN)', 'simulate(budget, PLAN)',
+                     'simulate(plannedBudget(), PLAN)', 'simulate(cap, PLAN)'];
+  const missing = planCalls.filter(c => !src.includes(c));
+  ok('完済予定日と必要返済額はすべて PLAN で計算する', missing.length === 0, missing.join(' | '));
+  // 雪崩式が残ってよいのは simulate の説明と、比較表の参考行の2箇所だけ
+  const av = (src.match(/'avalanche'/g) || []).length;
+  ok('計画側に雪崩式が残っていない', av === 2, String(av) + ' 箇所')
+  ok('比較表の先頭が雪だるま式',
+    src.indexOf('少額優先（雪だるま式）') < src.indexOf('高金利優先（雪崩式・参考）'));
+  ok('毎月の返済額を50万まで試せる', src.includes('BUDGET_CAP = 500000'));
+  // 比較表の並びを変えたときに sts[0]/sts[2] が別のものを指して壊れた。位置では引かない。
+  ok('比較表を位置で引いていない', !/sts\[\d\]/.test(src),
+    (src.match(/sts\[\d\][^;]*/g) || []).join(' | '));
+  ok('比較表は key で引ける', /key: 'plan'/.test(src) && /key: 'minimum'/.test(src) &&
+    /function pick\(sts, key\)/.test(src));
+
+  state.debts = [
+    fx('a', '少額', 266000, 15, 15000),
+    fx('b', '中', 888000, 3.9, 32000),
+    fx('c', '高額', 1229000, 14.5, 30000)
+  ];
+  const cap = simulate(500000, PLAN);
+  ok('月50万でも完済まで計算できる', cap.payoffMonths > 0 && cap.payoffMonths < 12,
+    String(cap.payoffMonths) + 'ヶ月');
+  ok('返済額を上げるほど完済が早まる',
+    [77000, 100000, 200000, 300000, 400000, 500000]
+      .map(b => simulate(b, PLAN).payoffMonths)
+      .every((v, i2, a) => i2 === 0 || v <= a[i2 - 1]));
+  ok('雪だるま式は残高の小さい借入から完済する',
+    cap.perDebt.a.paidOff <= cap.perDebt.b.paidOff &&
+    cap.perDebt.a.paidOff <= cap.perDebt.c.paidOff,
+    JSON.stringify({ a: cap.perDebt.a.paidOff, b: cap.perDebt.b.paidOff, c: cap.perDebt.c.paidOff }));
+}
+
+state.debts = [];
+ok('借入なし → 0ヶ月', simulate(50000, PLAN).payoffMonths === 0);
 
 state.debts = [
   fx('a', 'A', 500000, 12, 20000),
