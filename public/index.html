@@ -308,10 +308,21 @@ textarea { resize: vertical; min-height: 62px; font-family: var(--mono); font-si
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 13px; }
+/* 既定の min-width:auto だと、日付欄のように最小幅を持つ部品が枠を押し広げ、
+   隣の欄に被る。縮めるようにして、はみ出しの元を断つ。 */
+.form-grid > * { min-width: 0; }
+.form-grid input, .form-grid select, .form-grid textarea {
+  min-width: 0; max-width: 100%; box-sizing: border-box;
+}
 .form-grid .full { grid-column: 1 / -1; }
 /* 狭い画面でも2列のままにする。1列にすると縦に伸びて小さい端末で収まらない。
    横に置けない項目だけ .full を付けて全幅にする。 */
-@media (max-width: 620px) { .form-grid { gap: 10px 9px; } }
+@media (max-width: 620px) {
+  .form-grid { gap: 10px 9px; }
+  /* 日付欄は端末によって幅が大きく変わる（iOS Safari は特に横に長い）。
+     半分の幅に押し込めず隣に被るので、狭い画面では1行を占有させる。 */
+  .form-grid .wide-sm { grid-column: 1 / -1; }
+}
 
 /* ============================================================
    MOBILE — 普段使いはスマホ。親指の届く下部タブと、詰まらない余白。
@@ -2406,7 +2417,7 @@ details.tableview > div { margin-top: 8px; }
       lede: `${d.name}（元金 ${yen(d.principal)} ＋ 未払利息 ${yen(d.interestToday)} ＝ ${yen(d.balance)}）`,
       ok: '記録する',
       body: `<div class="form-grid">
-        <div class="field"><label for="p-date">返済日</label>
+        <div class="field wide-sm"><label for="p-date">返済日</label>
           <input type="date" id="p-date" name="date" required value="${todayISO()}"></div>
         <div class="field"><label for="p-amt">返済額（円）</label>
           <input type="number" id="p-amt" name="amount" required min="1" step="1" value="${Math.round(d.minPayment)}"></div>
@@ -2476,7 +2487,7 @@ details.tableview > div { margin-top: 8px; }
       title: '追加で借りた', ok: '記録する',
       lede: `${d.name}（元金 ${yen(d.principal)}）　カードローンなどで、返済しながらまた借りたとき`,
       body: `<div class="form-grid">
-        <div class="field"><label for="w-date">借りた日</label>
+        <div class="field wide-sm"><label for="w-date">借りた日</label>
           <input type="date" id="w-date" name="date" required value="${todayISO()}"></div>
         <div class="field"><label for="w-amt">借りた金額（円）</label>
           <input type="number" id="w-amt" name="amount" required min="1" step="1" placeholder="0"></div>
@@ -2529,7 +2540,7 @@ details.tableview > div { margin-top: 8px; }
       lede: type === 'income' ? '手取り額（実際に受け取った金額）を入力してください。' : '借入の返済は「借入・返済」画面で記録します。',
       ok: '追加',
       body: `<div class="form-grid">
-        <div class="field"><label for="t-date">日付</label>
+        <div class="field wide-sm"><label for="t-date">日付</label>
           <input type="date" id="t-date" name="date" required value="${todayISO()}"></div>
         <div class="field"><label for="t-amt">金額（円）</label>
           <input type="number" id="t-amt" name="amount" required min="1" step="1" placeholder="0"></div>
@@ -2627,7 +2638,7 @@ details.tableview > div { margin-top: 8px; }
     openDialog({
       title: '請求額を登録', lede: `${c.name}　${cashMonth.replace('-', '年')}月の引落`,
       body: `<div class="form-grid">
-        <div class="field"><label for="b-month">引落月</label>
+        <div class="field wide-sm"><label for="b-month">引落月</label>
           <input type="month" id="b-month" name="payMonth" required value="${esc(cashMonth)}"></div>
         <div class="field"><label for="b-amt">請求額（円）</label>
           <input type="number" id="b-amt" name="amount" required min="0" step="1"
@@ -2656,7 +2667,7 @@ details.tableview > div { margin-top: 8px; }
     openDialog({
       title: '目標を編集', lede: '未入力の項目は「未設定」として扱われます。',
       body: `<div class="form-grid">
-        <div class="field"><label for="g-date">完済の目標日</label>
+        <div class="field wide-sm"><label for="g-date">完済の目標日</label>
           <input type="date" id="g-date" name="targetDate" value="${esc(g.targetDate || '')}"></div>
         <div class="field"><label for="g-rep">月々の返済目標（円）</label>
           <input type="number" id="g-rep" name="monthlyRepay" min="0" step="1000" value="${g.monthlyRepay || ''}">
