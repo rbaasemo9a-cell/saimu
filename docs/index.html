@@ -309,7 +309,9 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 13px; }
 .form-grid .full { grid-column: 1 / -1; }
-@media (max-width: 620px) { .form-grid { grid-template-columns: 1fr; } }
+/* 狭い画面でも2列のままにする。1列にすると縦に伸びて小さい端末で収まらない。
+   横に置けない項目だけ .full を付けて全幅にする。 */
+@media (max-width: 620px) { .form-grid { gap: 10px 9px; } }
 
 /* ============================================================
    MOBILE — 普段使いはスマホ。親指の届く下部タブと、詰まらない余白。
@@ -401,13 +403,40 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   input, select, textarea { font-size: 16px !important; min-height: 42px; }
   .field .note { font-size: 11px; }
 
+  /* --- 背の低い端末でも入力欄が画面に収まるように詰める --- */
+  @media (max-height: 700px) {
+    .dlg-head { padding: 12px 16px 0; }
+    .dlg-head h3 { font-size: 15px; }
+    .dlg-head p { font-size: 11.5px; line-height: 1.5; }
+    .dlg-body { padding: 11px 16px; }
+    .dlg-foot { padding: 10px 16px; }
+    .form-grid { gap: 8px 9px; }
+    .field > label { font-size: 11.5px; }
+    .field .note { font-size: 10.5px; line-height: 1.45; }
+    input, select, textarea { min-height: 38px !important; }
+    .calc-note { font-size: 11px; line-height: 1.55; }
+    /* 補足はラベルを読めば分かる範囲なので、背が低い端末では畳んで高さを稼ぐ。
+       これを出したままだと借入フォームが画面に収まらない。 */
+    .dlg-body .field .note { display: none; }
+  }
+
   /* --- ダイアログは下から出るシートに --- */
-  .dlg {
+  /* 要素は <dialog id="dlg">。class="dlg" は無いので id で当てる。
+     ここを .dlg と書いていて、この節がまるごと効いていなかった。 */
+  #dlg {
     margin: auto auto 0; width: 100%; max-width: none;
     border-radius: 16px 16px 0 0;
-    max-height: 92vh; padding-bottom: env(safe-area-inset-bottom);
+    max-height: 96vh; max-height: 96dvh; padding-bottom: env(safe-area-inset-bottom);
+    /* 見出しと操作列を先に確保し、残り全部を本文に配る。
+       固定値で引くと端末によって本文が足りず、入力欄がスクロールに隠れる。 */
+    display: flex; flex-direction: column;
   }
-  .dlg-body { max-height: calc(92vh - 150px); overflow-y: auto; }
+  /* #dlg の直接の子は <form> で、見出し・本文・操作列はその中にある。
+     form にも flex を掛けないと、本文が縮まず操作列が枠の外へ出る。 */
+  #dlgForm { display: flex; flex-direction: column; min-height: 0; max-height: inherit; }
+  .dlg-head, .dlg-foot { flex: 0 0 auto; }
+  /* basis を 0 にして、見出しと操作列を引いた残りだけを本文に与える。 */
+  .dlg-body { flex: 1 1 0%; min-height: 0; overflow-y: auto; }
   .dlg-foot .btn { flex: 1 1 auto; justify-content: center; }
 }
 
@@ -1246,6 +1275,7 @@ function derive(st) {
       const pending = accrueOn(d.principal, d.rate, days);
       const interestToday = d.interestAccrued + pending;
       return Object.assign({}, d, {
+        originDate: d.originDate,
         pendingDays: days,
         pendingInterest: pending,
         interestToday,
@@ -1339,13 +1369,8 @@ const MUT = {
     if (!(amount > 0)) throw new Refused('返済額は1円以上で入力してください');
 
     const date = dateOrDefault(b.date, nowISO());
-    // 起点より前の返済は、申告した残高に既に含まれている。足すと二重に減る。
-    if (d.originDate && date < d.originDate) {
-      throw new Refused(
-        `この借入は ${d.originDate} 時点の残高として登録されています。` +
-        `それより前（${date}）の返済は、その残高に既に含まれているため記録できません。` +
-        `古い返済も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-    }
+    // 起点より前の返済も記録はできる。ただし残高には反映しない。
+    // rebuildDebt が起点以降だけを再生するので、二重に減ることはない。
     mem.repayments.push({
       id: newId(), debtId: d.id, date, amount,
       interest: 0, principal: 0, memo: strOf(b.memo, 60)
@@ -1360,14 +1385,9 @@ const MUT = {
     const amount = toNum(b.amount);
     if (!(amount > 0)) throw new Refused('借入額は1円以上で入力してください');
     const date = dateOrDefault(b.date, nowISO());
-    if (d.originDate && date < d.originDate) {
-      throw new Refused(
-        `この借入は ${d.originDate} 時点の残高として登録されています。` +
-        `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
-        `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-    }
     mem.borrows.push({ id: newId(), debtId: d.id, date, amount, memo: strOf(b.memo, 60) });
-    d.initial += amount;
+    // 残高に反映しない（起点より前の）借入では、当初借入額も動かさない
+    if (!d.originDate || date >= d.originDate) d.initial += amount;
     rebuildDebt(d);
   },
 
@@ -1376,7 +1396,9 @@ const MUT = {
     if (!b) return;
     mem.borrows = mem.borrows.filter(x => x.id !== id);
     const d = findDebt(b.debtId);
-    if (d) { d.initial = Math.max(0, d.initial - b.amount); rebuildDebt(d); }
+    if (!d) return;
+    if (!d.originDate || b.date >= d.originDate) d.initial = Math.max(0, d.initial - b.amount);
+    rebuildDebt(d);
   },
 
   deleteRepayment(id) {
@@ -2793,7 +2815,12 @@ window.saimuSignOut = signOutAndReset;
       ...state.repayments.map(r => ({ ...r, kind: 'repay' })),
       ...state.borrows.map(b => ({ ...b, kind: 'borrow' }))
     ].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 40);
-    const nameOf = id => (state.debts.find(d => d.id === id) || {}).name || '（削除済み）';
+    const nameOf = id => (rows('debts').find(d => d.id === id) || {}).name || '（削除済み）';
+    /** 起点より前の記録は、申告した残高に既に含まれているので計算に入らない。 */
+    const historyOnly = r => {
+      const d = rows('debts').find(x => x.id === r.debtId);
+      return !!(d && d.originDate && r.date < d.originDate);
+    };
 
     root.innerHTML =
       headHTML('借入・返済', '借入ごとに<b>元金</b>と<b>未払利息</b>を登録すると、以降の利息は<b>日割り</b>（年利 ÷ 365 × 経過日数）で自動計算されます。返済を記録すると、返済額はまず利息に充当され、残った分が元金から引かれます。') +
@@ -2816,11 +2843,12 @@ window.saimuSignOut = signOutAndReset;
                <td class="r" style="text-align:left">${esc(r.date)}</td>
                <td>${r.kind === 'borrow'
                  ? '<span class="pill crit">借入</span>'
-                 : '<span class="pill flat">返済</span>'}</td>
+                 : '<span class="pill flat">返済</span>'}${historyOnly(r)
+                 ? '<br><span class="pill warn" title="起算日より前なので、残高の計算には入りません">履歴のみ</span>' : ''}</td>
                <td>${esc(nameOf(r.debtId))}</td>
                <td class="r ${r.kind === 'borrow' ? 'amt-neg' : ''}">${r.kind === 'borrow' ? '+' : ''}${yen(r.amount)}</td>
-               <td class="r" style="color:var(--ink-2)">${r.kind === 'borrow' ? '—' : yen(r.interest)}</td>
-               <td class="r">${r.kind === 'borrow' ? '—' : yen(r.principal)}</td>
+               <td class="r" style="color:var(--ink-2)">${r.kind === 'borrow' || historyOnly(r) ? '—' : yen(r.interest)}</td>
+               <td class="r">${r.kind === 'borrow' || historyOnly(r) ? '—' : yen(r.principal)}</td>
                <td class="col-memo" style="color:var(--ink-2)">${esc(r.memo || '')}</td>
                <td class="r"><button class="btn sm danger" data-act="${r.kind === 'borrow' ? 'del-borrow' : 'del-rep'}" data-id="${r.id}">取消</button></td>
              </tr>`).join('')}</tbody></table></div>`
@@ -3421,18 +3449,18 @@ window.saimuSignOut = signOutAndReset;
         <input type="text" id="f-name" name="name" required maxlength="40" placeholder="例：〇〇カードローン" value="${d ? esc(d.name) : ''}"></div>
       <div class="field"><label for="f-prin">元金（円）</label>
         <input type="number" id="f-prin" name="principal" required min="0" step="1" value="${d ? Math.round(d.principal) : ''}">
-        <span class="note">利息が付く対象。返済予定表の「残元金」</span></div>
+        <span class="note">利息が付く対象</span></div>
       <div class="field"><label for="f-int">未払いの利息（円）</label>
         <input type="number" id="f-int" name="interestAccrued" min="0" step="1" value="${d ? Math.round(d.interestToday) : 0}">
-        <span class="note">まだ払っていない利息。無ければ 0</span></div>
-      <div class="field"><label for="f-acc">利息計算の起算日</label>
+        <span class="note">無ければ 0</span></div>
+      <div class="field full"><label for="f-acc">利息計算の起算日</label>
         <input type="date" id="f-acc" name="accruedAt" required value="${todayISO()}">
-        <span class="note">この日の翌日から日割りで利息が付きます</span></div>
+        <span class="note">翌日から日割りで利息が付きます</span></div>
       <div class="field"><label for="f-rate">年利（%）</label>
         <input type="number" id="f-rate" name="rate" required min="0" max="100" step="0.01" value="${d ? d.rate : ''}"></div>
       <div class="field"><label for="f-init">当初の借入額（円）</label>
         <input type="number" id="f-init" name="initial" min="0" step="1" value="${d ? Math.round(d.initial || d.balance) : ''}">
-        <span class="note">進捗率の計算に使います</span></div>
+        <span class="note">進捗率に使用</span></div>
       <div class="field"><label for="f-min">毎月の最低返済額（円）</label>
         <input type="number" id="f-min" name="minPayment" required min="0" step="1" value="${d ? Math.round(d.minPayment) : ''}"></div>
       <div class="full"><div class="calc-note" id="f-calc"></div></div>
@@ -3449,8 +3477,8 @@ window.saimuSignOut = signOutAndReset;
       const mon = monthlyInterest({ principal: prin, rate });
       calc.innerHTML =
         `<div>合計残高 <b>${yen(prin + int)}</b>（元金 ${yen(prin)} ＋ 未払利息 ${yen(int)}）</div>
-         <div>これから付く利息 <b>${yen(day)}</b>／日・<b>${yen(mon)}</b>／月</div>
-         <div style="color:var(--ink-3);margin-top:4px">元金 ${yen0(prin)} × ${rate}% ÷ ${DAY_BASIS}日 × 経過日数</div>`;
+         <div>利息 <b>${yen(day)}</b>／日・<b>${yen(mon)}</b>／月
+           <span style="color:var(--ink-3)">（元金 × ${rate}% ÷ ${DAY_BASIS}日）</span></div>`;
     };
     ['f-prin', 'f-int', 'f-rate'].forEach(id =>
       document.getElementById(id).addEventListener('input', upd));
@@ -3470,7 +3498,7 @@ window.saimuSignOut = signOutAndReset;
   function addDebt() {
     openDialog({
       title: '借入を追加',
-      lede: '返済予定表や利用明細に書かれている数字を入力してください。以降の利息は日割りで自動計算されます。',
+      lede: '返済予定表の数字を入れてください。以降の利息は日割りで自動計算されます。',
       body: debtForm(null),
       onOpen: debtFormPreview,
       onOk: fd => {
@@ -3487,8 +3515,7 @@ window.saimuSignOut = signOutAndReset;
     if (!d) return;
     openDialog({
       title: '借入を編集',
-      lede: d.name + '　未払利息と起算日は今日時点にそろえてあります' +
-            (d.pendingDays ? `（前回の起算日 ${d.accruedAt} から ${d.pendingDays}日分を反映）` : ''),
+      lede: d.name + '　未払利息と起算日は今日時点にそろえてあります',
       body: debtForm(d),
       onOpen: debtFormPreview,
       onOk: fd => {
@@ -3522,8 +3549,19 @@ window.saimuSignOut = signOutAndReset;
         const calc = document.getElementById('p-calc');
         const upd = () => {
           // サーバーと同じ順序で試算する：日割りで利息を積む → 利息へ充当 → 残りを元金へ。
+          const picked = dateEl.value || todayISO();
+          if (d.originDate && picked < d.originDate) {
+            calc.innerHTML =
+              `<div style="color:var(--warn-text,var(--ink))"><b>${esc(d.originDate)} より前の日付です。</b></div>
+               <div>記録は残りますが、<b>残高の計算には入りません</b>。この借入は
+                 ${esc(d.originDate)} 時点の残高として登録されていて、
+                 それより前の返済はその残高に既に含まれているためです。</div>
+               <div style="color:var(--ink-3);margin-top:4px">残高にも反映したいときは、借入を編集して
+                 起算日と元金を、その時点の値に直してください。</div>`;
+            return;
+          }
           const days = daysApart(new Date(d.accruedAt + 'T00:00:00'),
-                                 new Date((dateEl.value || todayISO()) + 'T00:00:00'));
+                                 new Date(picked + 'T00:00:00'));
           const int = d.interestAccrued + interestFor(d.principal, d.rate, days);
           const a = Math.max(0, +amtEl.value || 0);
           const toInterest = Math.min(a, int);
@@ -3603,6 +3641,15 @@ window.saimuSignOut = signOutAndReset;
     });
   }
 
+  /**
+   * 支払い方法の選択値をほどく。'' なら現金・口座、'card:<id>' ならカード払い。
+   * カードは翌月引落なので、そのまま何ヶ月ずらすかも一緒に返す。
+   */
+  function payVia(v) {
+    if (!String(v || '').startsWith('card:')) return { offset: 0, cardId: '' };
+    return { offset: 1, cardId: String(v).slice(5) };
+  }
+
   function txnDialog(type) {
     const cats = type === 'income' ? INCOME_CATS : EXPENSE_CATS;
     const label = type === 'income' ? '収入' : '支出';
@@ -3620,39 +3667,33 @@ window.saimuSignOut = signOutAndReset;
         <div class="field"><label for="t-memo">メモ</label>
           <input type="text" id="t-memo" name="memo" maxlength="60" placeholder="任意"></div>
         ${type === 'expense' ? `
-        <div class="field"><label for="t-pay">口座から出ていくのは</label>
-          <select id="t-pay" name="payOffset">
-            <option value="0">今月（現金・口座引落・デビット）</option>
-            <option value="1">来月（クレジットカード）</option>
-          </select></div>
-        <div class="field" id="t-cardwrap" hidden><label for="t-card">どのカードか</label>
-          <select id="t-card" name="cardId">
-            <option value="">指定しない</option>
-            ${state.cards.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
-          </select></div>
-        <div class="full"><span class="note" id="t-paynote"></span></div>` : ''}
+        <div class="field full"><label for="t-pay">支払い方法</label>
+          <select id="t-pay" name="payVia">
+            <option value="">現金・口座引落・デビット（今月）</option>
+            ${rows('cards').length
+              ? `<optgroup label="カード（翌月引落）">
+                   ${rows('cards').map(c => `<option value="card:${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                   <option value="card:">その他のカード</option>
+                 </optgroup>`
+              : `<option value="card:">クレジットカード（翌月引落）</option>`}
+          </select>
+          <span class="note" id="t-paynote"></span></div>` : ''}
       </div>`,
       onOpen: type === 'expense' ? () => {
         const dateEl = document.getElementById('t-date');
         const payEl = document.getElementById('t-pay');
         const note = document.getElementById('t-paynote');
-        const wrap = document.getElementById('t-cardwrap');
-        const cardEl = document.getElementById('t-card');
         const upd = () => {
-          const card = (+payEl.value || 0) > 0;
-          wrap.hidden = !card;
-          const m = addMonthKey(monthKey(dateEl.value || todayISO()), +payEl.value || 0);
-          const label = m.replace('-', '年') + '月に口座から出ていきます';
+          const via = payVia(payEl.value);
+          const m = addMonthKey(monthKey(dateEl.value || todayISO()), via.offset);
           // 請求額を登録しているカードなら、この明細は内訳であって二重に数えない
-          const billed = card && cardEl.value &&
-            state.cardBills.some(b => b.cardId === cardEl.value && b.payMonth === m);
-          note.textContent = billed
-            ? label + '。このカードは請求額を登録済みなので、この明細は内訳として扱います'
-            : label;
+          const billed = via.cardId &&
+            rows('cardBills').some(b => b.cardId === via.cardId && b.payMonth === m);
+          note.textContent = m.replace('-', '年') + '月に口座から出ていきます' +
+            (billed ? '。請求額を登録済みなので内訳として扱います' : '');
         };
         dateEl.addEventListener('change', upd);
         payEl.addEventListener('change', upd);
-        cardEl.addEventListener('change', upd);
         upd();
       } : undefined,
       onOk: fd => {
@@ -3660,12 +3701,13 @@ window.saimuSignOut = signOutAndReset;
         if (amount <= 0) return false;
         const date = String(fd.get('date') || todayISO());
         cashMonth = monthKey(date);
+        const via = payVia(String(fd.get('payVia') || ''));
         commit('/txns', 'POST', {
           type, date, amount,
           category: String(fd.get('category') || 'その他'),
           memo: String(fd.get('memo') || '').trim(),
-          payMonth: addMonthKey(monthKey(date), +(fd.get('payOffset') || 0)),
-          cardId: +(fd.get('payOffset') || 0) > 0 ? String(fd.get('cardId') || '') : ''
+          payMonth: addMonthKey(monthKey(date), via.offset),
+          cardId: via.cardId
         }, label + 'を追加しました');
       }
     });

@@ -174,10 +174,12 @@ db.addRepayment({ debtId: d1, amount: 30000, date: '2026-01-31', memo: 'テス�
     String(after.initial));
 
   // 起点より前の借入は拒否
-  let msg = '';
-  try { db.addBorrow({ debtId: a, amount: 50000, date: '2026-05-01' }); }
-  catch (e) { msg = e.message; }
-  ok('起算日より前の追加借入は拒否される', msg.includes('2026-06-01'), msg);
+  const initBefore = findD(a).initial;
+  db.addBorrow({ debtId: a, amount: 50000, date: '2026-05-01' });
+  ok('起算日より前の追加借入も記録できる',
+    db.getState().borrows.some(x => x.debtId === a && x.date === '2026-05-01'));
+  ok('起算日より前の追加借入は当初借入額を動かさない',
+    findD(a).initial === initBefore, `${initBefore} → ${findD(a).initial}`);
 
   // 借入を消すと追加借入も消える
   db.deleteDebt(a);
@@ -189,12 +191,14 @@ db.addRepayment({ debtId: d1, amount: 30000, date: '2026-01-31', memo: 'テス�
 {
   const dz = db.addDebt({ name: '起点あり', principal: 1000000, accruedAt: '2026-08-22',
                           rate: 14.5, minPayment: 30000 });
-  let msg = '';
-  try { db.addRepayment({ debtId: dz, amount: 30000, date: '2026-07-10' }); }
-  catch (e) { msg = e.message; }
-  ok('起算日より前の返済は拒否される', msg.includes('2026-08-22') && msg.includes('2026-07-10'), msg);
-  ok('拒否されたとき残高は動かない',
+  db.addRepayment({ debtId: dz, amount: 30000, date: '2026-07-10', memo: '7月分' });
+  const hist = db.getState().repayments.find(r => r.debtId === dz && r.date === '2026-07-10');
+  ok('起算日より前の返済も記録できる', !!hist && hist.memo === '7月分');
+  ok('起算日より前の返済は残高を動かさない',
     findD(dz).principal === 1000000, String(findD(dz).principal));
+  ok('起算日より前の返済は内訳を持たない',
+    hist.interest === 0 && hist.principal === 0);
+  ok('起点も動かない', findD(dz).originDate === '2026-08-22', findD(dz).originDate);
   ok('起算日と同じ日は記録できる',
     (() => { try { db.addRepayment({ debtId: dz, amount: 10000, date: '2026-08-22' }); return true; }
              catch (e) { return false; } })());

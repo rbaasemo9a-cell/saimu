@@ -238,7 +238,8 @@ function accrue(d, toISO) {
 
 const Q = {
   debts: db.prepare(`SELECT id, name, principal, interest_accrued AS interestAccrued,
-                            accrued_at AS accruedAt, initial, rate,
+                            accrued_at AS accruedAt, origin_date AS originDate,
+                            initial, rate,
                             min_payment AS minPayment, created_at AS createdAt
                      FROM debts ORDER BY created_at, rowid`),
   txns: db.prepare(`SELECT id, type, date, amount, category, memo,
@@ -411,14 +412,9 @@ function addRepayment(b) {
   if (!(amount > 0)) throw new BadRequest('返済額は1円以上で入力してください');
 
   const date = dateOr(b.date, localToday());
-  // 起点より前の返済は、申告した残高に既に含まれている。足すと二重に減る。
-  if (d.origin_date && date < d.origin_date) {
-    throw new BadRequest(
-      `この借入は ${d.origin_date} 時点の残高として登録されています。` +
-      `それより前（${date}）の返済は、その残高に既に含まれているため記録できません。` +
-      `古い返済も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-  }
-
+  // 起点より前の返済も記録はできる。ただし残高には反映しない。
+  // 「この日にこの残高だった」という申告に既に含まれているので、
+  // 差し引くと二重に減ってしまう。rebuild が起点以降だけを再生する。
   return tx(() => {
     const id = uid();
     db.prepare(`INSERT INTO repayments (id, debt_id, date, amount, interest, principal, memo)
@@ -440,18 +436,15 @@ function addBorrow(b) {
   if (!(amount > 0)) throw new BadRequest('借入額は1円以上で入力してください');
 
   const date = dateOr(b.date, localToday());
-  if (d.origin_date && date < d.origin_date) {
-    throw new BadRequest(
-      `この借入は ${d.origin_date} 時点の残高として登録されています。` +
-      `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
-      `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-  }
-
+  // 返済と同じく、起点より前の借入も記録だけはできる（残高には反映しない）。
   return tx(() => {
     const id = uid();
     db.prepare('INSERT INTO borrows (id, debt_id, date, amount, memo) VALUES (?,?,?,?,?)')
       .run(id, d.id, date, amount, str(b.memo, 60));
-    db.prepare('UPDATE debts SET initial = initial + ? WHERE id = ?').run(amount, d.id);
+    // 残高に反映しない（起点より前の）借入では、当初借入額も動かさない
+    if (!d.origin_date || date >= d.origin_date) {
+      db.prepare('UPDATE debts SET initial = initial + ? WHERE id = ?').run(amount, d.id);
+    }
     rebuild(d.id);
     return id;
   });
@@ -462,8 +455,11 @@ function deleteBorrow(id) {
   if (!b) return;
   tx(() => {
     db.prepare('DELETE FROM borrows WHERE id = ?').run(id);
-    db.prepare('UPDATE debts SET initial = MAX(0, initial - ?) WHERE id = ?')
-      .run(b.amount, b.debt_id);
+    const d0 = Q.debt.get(b.debt_id);
+    if (d0 && (!d0.origin_date || b.date >= d0.origin_date)) {
+      db.prepare('UPDATE debts SET initial = MAX(0, initial - ?) WHERE id = ?')
+        .run(b.amount, b.debt_id);
+    }
     rebuild(b.debt_id);
   });
 }

@@ -14,6 +14,7 @@ function derive(st) {
       const pending = accrueOn(d.principal, d.rate, days);
       const interestToday = d.interestAccrued + pending;
       return Object.assign({}, d, {
+        originDate: d.originDate,
         pendingDays: days,
         pendingInterest: pending,
         interestToday,
@@ -107,13 +108,8 @@ const MUT = {
     if (!(amount > 0)) throw new Refused('返済額は1円以上で入力してください');
 
     const date = dateOrDefault(b.date, nowISO());
-    // 起点より前の返済は、申告した残高に既に含まれている。足すと二重に減る。
-    if (d.originDate && date < d.originDate) {
-      throw new Refused(
-        `この借入は ${d.originDate} 時点の残高として登録されています。` +
-        `それより前（${date}）の返済は、その残高に既に含まれているため記録できません。` +
-        `古い返済も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-    }
+    // 起点より前の返済も記録はできる。ただし残高には反映しない。
+    // rebuildDebt が起点以降だけを再生するので、二重に減ることはない。
     mem.repayments.push({
       id: newId(), debtId: d.id, date, amount,
       interest: 0, principal: 0, memo: strOf(b.memo, 60)
@@ -128,14 +124,9 @@ const MUT = {
     const amount = toNum(b.amount);
     if (!(amount > 0)) throw new Refused('借入額は1円以上で入力してください');
     const date = dateOrDefault(b.date, nowISO());
-    if (d.originDate && date < d.originDate) {
-      throw new Refused(
-        `この借入は ${d.originDate} 時点の残高として登録されています。` +
-        `それより前（${date}）の借入は、その残高に既に含まれているため記録できません。` +
-        `古い借入も残したい場合は、借入を編集して「利息計算の起算日」と元金を、その時点の値に直してください。`);
-    }
     mem.borrows.push({ id: newId(), debtId: d.id, date, amount, memo: strOf(b.memo, 60) });
-    d.initial += amount;
+    // 残高に反映しない（起点より前の）借入では、当初借入額も動かさない
+    if (!d.originDate || date >= d.originDate) d.initial += amount;
     rebuildDebt(d);
   },
 
@@ -144,7 +135,9 @@ const MUT = {
     if (!b) return;
     mem.borrows = mem.borrows.filter(x => x.id !== id);
     const d = findDebt(b.debtId);
-    if (d) { d.initial = Math.max(0, d.initial - b.amount); rebuildDebt(d); }
+    if (!d) return;
+    if (!d.originDate || b.date >= d.originDate) d.initial = Math.max(0, d.initial - b.amount);
+    rebuildDebt(d);
   },
 
   deleteRepayment(id) {
