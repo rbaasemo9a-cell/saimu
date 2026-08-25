@@ -36,13 +36,13 @@ const TABLES = {
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
-  fixed: ['id', 'type', 'category', 'amount', 'memo', 'createdAt'],
+  fixed: ['id', 'type', 'name', 'day', 'category', 'amount', 'memo', 'createdAt'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
 const NUMERIC = new Set(['principal', 'interestAccrued', 'originPrincipal', 'originInterest',
                          'initial', 'rate', 'minPayment',
-                         'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent',
+                         'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent', 'day',
                          'revision']);
 
 /* ---------- 利息（db.js と同じ規則） ---------- */

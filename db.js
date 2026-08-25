@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS card_bills (
 CREATE TABLE IF NOT EXISTS fixed_items (
   id         TEXT PRIMARY KEY,
   type       TEXT NOT NULL CHECK(type IN ('income','expense')),
+  name       TEXT NOT NULL DEFAULT '',
+  day        INTEGER NOT NULL DEFAULT 0 CHECK(day >= 0 AND day <= 31),
   category   TEXT NOT NULL DEFAULT 'その他',
   amount     REAL NOT NULL CHECK(amount >= 0),
   memo       TEXT NOT NULL DEFAULT '',
@@ -238,6 +240,14 @@ function accrue(d, toISO) {
   if (n) console.log('[db] 借入 ' + n + ' 件に、いまの状態を起点として記録しました');
 })();
 
+/** 固定収支に項目名と日付を持たせる。名前が空なら、それまでのカテゴリ名を使う。 */
+(function migrateFixed() {
+  const cols = new Set(db.prepare('PRAGMA table_info(fixed_items)').all().map(c => c.name));
+  if (!cols.has('name')) db.exec(`ALTER TABLE fixed_items ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+  if (!cols.has('day')) db.exec(`ALTER TABLE fixed_items ADD COLUMN day INTEGER NOT NULL DEFAULT 0`);
+  db.exec("UPDATE fixed_items SET name = category WHERE name = ''");
+})();
+
 /** どのカードで払ったかを持てるようにする。空欄は現金・口座払い、または未指定のカード。 */
 (function migrateTxnCard() {
   const cols = new Set(db.prepare('PRAGMA table_info(txns)').all().map(c => c.name));
@@ -268,8 +278,10 @@ const Q = {
                      FROM goals WHERE id = 1`),
   borrows: db.prepare(`SELECT id, debt_id AS debtId, date, amount, memo
                        FROM borrows ORDER BY date DESC, rowid DESC`),
-  fixed: db.prepare(`SELECT id, type, category, amount, memo, created_at AS createdAt
-                     FROM fixed_items ORDER BY type DESC, created_at, rowid`),
+  fixed: db.prepare(`SELECT id, type, name, day, category, amount, memo,
+                            created_at AS createdAt
+                     FROM fixed_items
+                     ORDER BY type DESC, CASE WHEN day = 0 THEN 99 ELSE day END, rowid`),
   debt: db.prepare('SELECT * FROM debts WHERE id = ?'),
   rep:  db.prepare('SELECT * FROM repayments WHERE id = ?'),
   borrow: db.prepare('SELECT * FROM borrows WHERE id = ?')
@@ -560,14 +572,29 @@ function deleteCardBill(id) {
 
 /* ---------- 毎月の固定収支 ---------- */
 
-function addFixed(b) {
-  const type = b.type === 'income' ? 'income' : 'expense';
+/** 毎月何日か。0 は未設定。31 を超える指定は月末に丸める。 */
+function dayOfMonth(v) {
+  const d = Math.round(num(v));
+  if (!Number.isFinite(d) || d <= 0) return 0;
+  return Math.min(31, d);
+}
+
+function fixedFields(b) {
+  const name = str(b.name, 40);
+  if (!name) throw new BadRequest('項目名を入力してください');
   const amount = Math.max(0, num(b.amount));
   if (!(amount > 0)) throw new BadRequest('金額は1円以上で入力してください');
+  return { name, day: dayOfMonth(b.day), amount,
+           category: str(b.category, 30) || name, memo: str(b.memo, 60) };
+}
+
+function addFixed(b) {
+  const type = b.type === 'income' ? 'income' : 'expense';
+  const f = fixedFields(b);
   const id = uid();
-  db.prepare(`INSERT INTO fixed_items (id, type, category, amount, memo, created_at)
-              VALUES (?,?,?,?,?,?)`)
-    .run(id, type, str(b.category, 30) || 'その他', amount, str(b.memo, 60), localToday());
+  db.prepare(`INSERT INTO fixed_items (id, type, name, day, category, amount, memo, created_at)
+              VALUES (?,?,?,?,?,?,?,?)`)
+    .run(id, type, f.name, f.day, f.category, f.amount, f.memo, localToday());
   return id;
 }
 
@@ -575,10 +602,9 @@ function updateFixed(id, b) {
   if (!db.prepare('SELECT id FROM fixed_items WHERE id = ?').get(id)) {
     throw new BadRequest('その項目は見つかりません');
   }
-  const amount = Math.max(0, num(b.amount));
-  if (!(amount > 0)) throw new BadRequest('金額は1円以上で入力してください');
-  db.prepare('UPDATE fixed_items SET category=?, amount=?, memo=? WHERE id=?')
-    .run(str(b.category, 30) || 'その他', amount, str(b.memo, 60), id);
+  const f = fixedFields(b);
+  db.prepare('UPDATE fixed_items SET name=?, day=?, category=?, amount=?, memo=? WHERE id=?')
+    .run(f.name, f.day, f.category, f.amount, f.memo, id);
 }
 
 function deleteFixed(id) {
@@ -677,13 +703,15 @@ function importState(p) {
                 amt, str(b.memo, 60));
     }
 
-    const insF = db.prepare(`INSERT OR IGNORE INTO fixed_items (id,type,category,amount,memo,created_at)
-                             VALUES (?,?,?,?,?,?)`);
+    const insF = db.prepare(`INSERT OR IGNORE INTO fixed_items
+                             (id,type,name,day,category,amount,memo,created_at)
+                             VALUES (?,?,?,?,?,?,?,?)`);
     for (const f of (p.fixed || [])) {
       const amt = num(f.amount);
       if (!(amt > 0)) continue;
+      const nm = str(f.name, 40) || str(f.category, 30) || 'その他';
       insF.run(str(f.id, 40) || uid(), f.type === 'income' ? 'income' : 'expense',
-               str(f.category, 30) || 'その他', amt, str(f.memo, 60),
+               nm, dayOfMonth(f.day), str(f.category, 30) || nm, amt, str(f.memo, 60),
                dateOr(f.createdAt, localToday()));
     }
 

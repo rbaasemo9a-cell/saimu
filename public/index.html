@@ -2020,12 +2020,13 @@ details.tableview > div { margin-top: 8px; }
                      </div>`}`}
 
            ${rows('fixed').length ? `<div class="table-wrap" style="margin-top:14px"><table class="ledger">
-               <thead><tr><th>区分</th><th>項目</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
+               <thead><tr><th>区分</th><th class="r">日</th><th>項目名</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
                <tbody>${rows('fixed').map(f => `<tr>
                  <td>${f.type === 'income'
                    ? '<span class="pill ok">収入</span>'
                    : '<span class="pill flat">支出</span>'}</td>
-                 <td>${esc(f.category)}</td>
+                 <td class="r" style="color:var(--ink-2)">${f.day ? f.day + '日' : '—'}</td>
+                 <td>${esc(f.name || f.category)}</td>
                  <td class="r">${yen(f.amount)}</td>
                  <td class="col-memo" style="color:var(--ink-2)">${esc(f.memo || '')}</td>
                  <td class="r"><button class="btn sm" data-act="edit-fixed" data-id="${f.id}">編集</button></td>
@@ -2740,11 +2741,15 @@ details.tableview > div { margin-top: 8px; }
         ? '毎月決まって入るお金。計画に使う数字で、収支の記録にはなりません。'
         : '毎月決まって出るお金。計画に使う数字で、収支の記録にはなりません。',
       body: `<div class="form-grid">
-        <div class="field"><label for="x-cat">項目</label>
-          <select id="x-cat" name="category">
-            ${cats.map(c => `<option${f && f.category === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}
-          </select></div>
-        <div class="field"><label for="x-amt">毎月の金額（円）</label>
+        <div class="field full"><label for="x-name">項目名</label>
+          <input type="text" id="x-name" name="name" required maxlength="40" list="x-cats"
+                 placeholder="${kind === 'income' ? '例：給与（本業）' : '例：家賃、楽天モバイル'}"
+                 value="${f ? esc(f.name || f.category) : ''}">
+          <datalist id="x-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label for="x-day">毎月の日付</label>
+          <input type="number" id="x-day" name="day" min="1" max="31" step="1"
+                 value="${f && f.day ? f.day : ''}" placeholder="未設定"></div>
+        <div class="field"><label for="x-amt">金額（円）</label>
           <input type="number" id="x-amt" name="amount" required min="1" step="1"
                  value="${f ? Math.round(f.amount) : ''}" placeholder="0"></div>
         <div class="field full"><label for="x-memo">メモ</label>
@@ -2766,10 +2771,11 @@ details.tableview > div { margin-top: 8px; }
       onOk: fd => {
         const amount = numOf(fd, 'amount');
         if (amount <= 0) return false;
+        const name = String(fd.get('name') || '').trim();
+        if (!name) return false;
         const body = {
-          type: kind,
-          category: String(fd.get('category') || 'その他'),
-          amount,
+          type: kind, name, amount,
+          day: numOf(fd, 'day'),
           memo: String(fd.get('memo') || '').trim()
         };
         if (f) commit('/fixed/' + f.id, 'PUT', body, '更新しました');

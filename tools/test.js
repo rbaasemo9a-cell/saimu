@@ -326,23 +326,43 @@ ok('収支を登録できる', db.getState().txns.length === 2);
 
 // 毎月の固定収支
 {
-  const i1 = db.addFixed({ type: 'income', category: '給与', amount: 280000 });
-  db.addFixed({ type: 'expense', category: '住居', amount: 82000 });
-  db.addFixed({ type: 'expense', category: '社会保険', amount: 45000 });
-  ok('固定収支を登録できる', db.getState().fixed.length === 3);
+  const i1 = db.addFixed({ type: 'income', name: '給与（本業）', day: 25, amount: 280000 });
+  db.addFixed({ type: 'expense', name: '家賃', day: 27, amount: 82000 });
+  db.addFixed({ type: 'expense', name: '楽天モバイル', day: 4, amount: 3278, memo: '2回線' });
+  ok('項目名・日付・金額で登録できる', db.getState().fixed.length === 3);
+  {
+    const m = db.getState().fixed.find(f => f.name === '楽天モバイル');
+    ok('項目名を自由に付けられる', m.name === '楽天モバイル' && m.day === 4 && m.memo === '2回線');
+  }
 
   let threw = 0;
-  try { db.addFixed({ type: 'income', category: '給与', amount: 0 }); } catch (e) { threw++; }
-  try { db.addFixed({ type: 'expense', category: '住居', amount: -100 }); } catch (e) { threw++; }
-  try { db.updateFixed('nope', { amount: 100 }); } catch (e) { threw++; }
-  ok('0円・マイナス・存在しないIDは拒否される', threw === 3, 'threw=' + threw);
+  try { db.addFixed({ type: 'income', name: '給与', amount: 0 }); } catch (e) { threw++; }
+  try { db.addFixed({ type: 'expense', name: '家賃', amount: -100 }); } catch (e) { threw++; }
+  try { db.addFixed({ type: 'expense', name: '  ', amount: 1000 }); } catch (e) { threw++; }
+  try { db.updateFixed('nope', { name: 'x', amount: 100 }); } catch (e) { threw++; }
+  ok('0円・マイナス・名前なし・存在しないIDは拒否される', threw === 4, 'threw=' + threw);
 
-  db.updateFixed(i1, { category: '給与', amount: 300000, memo: '昇給' });
+  db.addFixed({ type: 'expense', name: '月末', day: 99, amount: 100 });
+  ok('31を超える日付は月末に丸める',
+    db.getState().fixed.find(f => f.name === '月末').day === 31);
+  db.addFixed({ type: 'expense', name: '日付なし', amount: 100 });
+  ok('日付は省略できる（0 として扱う）',
+    db.getState().fixed.find(f => f.name === '日付なし').day === 0);
+
+  // 支出は日付の早い順、日付なしは最後
+  {
+    const ex = db.getState().fixed.filter(f => f.type === 'expense').map(f => f.day);
+    ok('日付の早い順に並び、未設定は最後',
+      JSON.stringify(ex) === JSON.stringify([4, 27, 31, 0]), JSON.stringify(ex));
+  }
+
+  db.updateFixed(i1, { name: '給与（昇給後）', day: 25, amount: 300000, memo: '4月から' });
   const upd = db.getState().fixed.find(f => f.id === i1);
-  ok('固定収支を編集できる', upd.amount === 300000 && upd.memo === '昇給');
+  ok('項目名も金額も編集できる',
+    upd.name === '給与（昇給後）' && upd.amount === 300000 && upd.memo === '4月から');
 
   db.deleteFixed(i1);
-  ok('固定収支を削除できる', db.getState().fixed.length === 2);
+  ok('固定収支を削除できる', db.getState().fixed.length === 4, String(db.getState().fixed.length));
   db.getState().fixed.forEach(f => db.deleteFixed(f.id));
 }
 

@@ -859,13 +859,13 @@ const TABLES = {
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
-  fixed: ['id', 'type', 'category', 'amount', 'memo', 'createdAt'],
+  fixed: ['id', 'type', 'name', 'day', 'category', 'amount', 'memo', 'createdAt'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
 const NUMERIC = new Set(['principal', 'interestAccrued', 'originPrincipal', 'originInterest',
                          'initial', 'rate', 'minPayment',
-                         'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent',
+                         'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent', 'day',
                          'revision']);
 
 /* ---------- 利息（db.js と同じ規則） ---------- */
@@ -1313,6 +1313,21 @@ const findDebt = id => mem.debts.find(d => d.id === id);
  * 借入の現在の状態を、起点から返済を**日付順に**再生して組み立て直す。
  * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
  */
+/** 毎月何日か。0 は未設定。31 を超える指定は月末に丸める。 */
+function dayOfMonth(v) {
+  const d = Math.round(toNum(v));
+  return (!Number.isFinite(d) || d <= 0) ? 0 : Math.min(31, d);
+}
+
+function fixedFields(b) {
+  const name = strOf(b.name, 40);
+  if (!name) throw new Refused('項目名を入力してください');
+  const amount = Math.max(0, toNum(b.amount));
+  if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+  return { name, day: dayOfMonth(b.day), amount,
+           category: strOf(b.category, 30) || name, memo: strOf(b.memo, 60) };
+}
+
 function rebuildDebt(d) {
   // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
   const events = [];
@@ -1407,20 +1422,14 @@ const MUT = {
 
   addFixed(b) {
     const type = b.type === 'income' ? 'income' : 'expense';
-    const amount = Math.max(0, toNum(b.amount));
-    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
-    mem.fixed.push({ id: newId(), type, category: strOf(b.category, 30) || 'その他',
-                     amount, memo: strOf(b.memo, 60), createdAt: nowISO() });
+    const f = fixedFields(b);
+    mem.fixed.push(Object.assign({ id: newId(), type }, f, { createdAt: nowISO() }));
   },
 
   updateFixed(id, b) {
-    const f = mem.fixed.find(x => x.id === id);
-    if (!f) throw new Refused('その項目は見つかりません');
-    const amount = Math.max(0, toNum(b.amount));
-    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
-    f.category = strOf(b.category, 30) || 'その他';
-    f.amount = amount;
-    f.memo = strOf(b.memo, 60);
+    const cur = mem.fixed.find(x => x.id === id);
+    if (!cur) throw new Refused('その項目は見つかりません');
+    Object.assign(cur, fixedFields(b));
   },
 
   deleteFixed(id) { mem.fixed = mem.fixed.filter(f => f.id !== id); },
@@ -1579,9 +1588,11 @@ const MUT = {
     for (const f of (p.fixed || [])) {
       const amount = toNum(f.amount);
       if (!(amount > 0)) continue;
+      const nm = strOf(f.name, 40) || strOf(f.category, 30) || 'その他';
       fixed.push({ id: strOf(f.id, 40) || newId(),
                    type: f.type === 'income' ? 'income' : 'expense',
-                   category: strOf(f.category, 30) || 'その他', amount,
+                   name: nm, day: dayOfMonth(f.day),
+                   category: strOf(f.category, 30) || nm, amount,
                    memo: strOf(f.memo, 60), createdAt: dateOrDefault(f.createdAt, nowISO()) });
     }
     const g = p.goals || {};
@@ -3186,12 +3197,13 @@ window.saimuSignOut = signOutAndReset;
                      </div>`}`}
 
            ${rows('fixed').length ? `<div class="table-wrap" style="margin-top:14px"><table class="ledger">
-               <thead><tr><th>区分</th><th>項目</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
+               <thead><tr><th>区分</th><th class="r">日</th><th>項目名</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
                <tbody>${rows('fixed').map(f => `<tr>
                  <td>${f.type === 'income'
                    ? '<span class="pill ok">収入</span>'
                    : '<span class="pill flat">支出</span>'}</td>
-                 <td>${esc(f.category)}</td>
+                 <td class="r" style="color:var(--ink-2)">${f.day ? f.day + '日' : '—'}</td>
+                 <td>${esc(f.name || f.category)}</td>
                  <td class="r">${yen(f.amount)}</td>
                  <td class="col-memo" style="color:var(--ink-2)">${esc(f.memo || '')}</td>
                  <td class="r"><button class="btn sm" data-act="edit-fixed" data-id="${f.id}">編集</button></td>
@@ -3906,11 +3918,15 @@ window.saimuSignOut = signOutAndReset;
         ? '毎月決まって入るお金。計画に使う数字で、収支の記録にはなりません。'
         : '毎月決まって出るお金。計画に使う数字で、収支の記録にはなりません。',
       body: `<div class="form-grid">
-        <div class="field"><label for="x-cat">項目</label>
-          <select id="x-cat" name="category">
-            ${cats.map(c => `<option${f && f.category === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}
-          </select></div>
-        <div class="field"><label for="x-amt">毎月の金額（円）</label>
+        <div class="field full"><label for="x-name">項目名</label>
+          <input type="text" id="x-name" name="name" required maxlength="40" list="x-cats"
+                 placeholder="${kind === 'income' ? '例：給与（本業）' : '例：家賃、楽天モバイル'}"
+                 value="${f ? esc(f.name || f.category) : ''}">
+          <datalist id="x-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label for="x-day">毎月の日付</label>
+          <input type="number" id="x-day" name="day" min="1" max="31" step="1"
+                 value="${f && f.day ? f.day : ''}" placeholder="未設定"></div>
+        <div class="field"><label for="x-amt">金額（円）</label>
           <input type="number" id="x-amt" name="amount" required min="1" step="1"
                  value="${f ? Math.round(f.amount) : ''}" placeholder="0"></div>
         <div class="field full"><label for="x-memo">メモ</label>
@@ -3932,10 +3948,11 @@ window.saimuSignOut = signOutAndReset;
       onOk: fd => {
         const amount = numOf(fd, 'amount');
         if (amount <= 0) return false;
+        const name = String(fd.get('name') || '').trim();
+        if (!name) return false;
         const body = {
-          type: kind,
-          category: String(fd.get('category') || 'その他'),
-          amount,
+          type: kind, name, amount,
+          day: numOf(fd, 'day'),
           memo: String(fd.get('memo') || '').trim()
         };
         if (f) commit('/fixed/' + f.id, 'PUT', body, '更新しました');

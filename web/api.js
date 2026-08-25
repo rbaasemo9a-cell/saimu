@@ -39,6 +39,21 @@ const findDebt = id => mem.debts.find(d => d.id === id);
  * 借入の現在の状態を、起点から返済を**日付順に**再生して組み立て直す。
  * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
  */
+/** 毎月何日か。0 は未設定。31 を超える指定は月末に丸める。 */
+function dayOfMonth(v) {
+  const d = Math.round(toNum(v));
+  return (!Number.isFinite(d) || d <= 0) ? 0 : Math.min(31, d);
+}
+
+function fixedFields(b) {
+  const name = strOf(b.name, 40);
+  if (!name) throw new Refused('項目名を入力してください');
+  const amount = Math.max(0, toNum(b.amount));
+  if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+  return { name, day: dayOfMonth(b.day), amount,
+           category: strOf(b.category, 30) || name, memo: strOf(b.memo, 60) };
+}
+
 function rebuildDebt(d) {
   // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
   const events = [];
@@ -133,20 +148,14 @@ const MUT = {
 
   addFixed(b) {
     const type = b.type === 'income' ? 'income' : 'expense';
-    const amount = Math.max(0, toNum(b.amount));
-    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
-    mem.fixed.push({ id: newId(), type, category: strOf(b.category, 30) || 'その他',
-                     amount, memo: strOf(b.memo, 60), createdAt: nowISO() });
+    const f = fixedFields(b);
+    mem.fixed.push(Object.assign({ id: newId(), type }, f, { createdAt: nowISO() }));
   },
 
   updateFixed(id, b) {
-    const f = mem.fixed.find(x => x.id === id);
-    if (!f) throw new Refused('その項目は見つかりません');
-    const amount = Math.max(0, toNum(b.amount));
-    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
-    f.category = strOf(b.category, 30) || 'その他';
-    f.amount = amount;
-    f.memo = strOf(b.memo, 60);
+    const cur = mem.fixed.find(x => x.id === id);
+    if (!cur) throw new Refused('その項目は見つかりません');
+    Object.assign(cur, fixedFields(b));
   },
 
   deleteFixed(id) { mem.fixed = mem.fixed.filter(f => f.id !== id); },
@@ -305,9 +314,11 @@ const MUT = {
     for (const f of (p.fixed || [])) {
       const amount = toNum(f.amount);
       if (!(amount > 0)) continue;
+      const nm = strOf(f.name, 40) || strOf(f.category, 30) || 'その他';
       fixed.push({ id: strOf(f.id, 40) || newId(),
                    type: f.type === 'income' ? 'income' : 'expense',
-                   category: strOf(f.category, 30) || 'その他', amount,
+                   name: nm, day: dayOfMonth(f.day),
+                   category: strOf(f.category, 30) || nm, amount,
                    memo: strOf(f.memo, 60), createdAt: dateOrDefault(f.createdAt, nowISO()) });
     }
     const g = p.goals || {};
