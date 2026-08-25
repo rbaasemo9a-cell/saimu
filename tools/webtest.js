@@ -305,6 +305,106 @@ const dbFields = require('../db');
   }
 }
 
+
+/*
+ * ふるさと納税の年の内容と、支出の経費率。
+ * txns の末尾に costRate を、シートに tax を足したので、
+ * それを持たない既存のシートを開いても壊れないことを確かめる。
+ */
+console.log('\nふるさと納税（スプレッドシート版）');
+let TAX_COLS = [];        // 下の SQLite 版との突き合わせでも使う
+{
+  const L4 = new Function([
+    "const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;",
+    grab('toNum', 'const'),
+    grab('TABLES', 'const'),
+    grab('NUMERIC', 'const'),
+    grab('rowsToObjects'),
+    'return { rowsToObjects, TABLES };'
+  ].join(String.fromCharCode(10)))();
+
+  TAX_COLS = L4.TABLES.tax;
+  ok('tax の表が定義されている', Array.isArray(L4.TABLES.tax));
+  ok('tax の表に年がある', L4.TABLES.tax[0] === 'year');
+  ok('txns に経費率の列がある', L4.TABLES.txns.includes('costRate'));
+  ok('経費率は数として読む', L4.rowsToObjects('txns',
+    [['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId', 'costRate'],
+     ['t1', 'expense', '2026-03-01', '8000', '通信', '', '2026-03', '', '50']])[0].costRate === 50);
+
+  // 経費率の列がまだ無い、これまでのシート
+  const oldTxns = [
+    ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId'],
+    ['t1', 'expense', '2026-03-01', '8000', '通信', 'メモ', '2026-04', 'c1']
+  ];
+  const t = L4.rowsToObjects('txns', oldTxns)[0];
+  ok('経費率の無いシートでも金額が読める', t.amount === 8000, String(t.amount));
+  ok('経費率の無いシートでもカードが読める', t.cardId === 'c1', t.cardId);
+  ok('経費率が無ければ0（経費にしない）として読む', t.costRate === 0, String(t.costRate));
+
+  const tax = L4.rowsToObjects('tax',
+    [['year', 'salary', 'bizIncome', 'bizCost', 'social', 'blue', 'lifeIns', 'ideco',
+      'medical', 'family', 'otherDed', 'levy', 'memo'],
+     ['2026', '3000000', '900000', '250000', '500000', '0', '40000', '0', '0', '0', '0', '0', '']])[0];
+  ok('年の内容を数として読む', tax.year === 2026 && tax.salary === 3000000 && tax.lifeIns === 40000,
+    JSON.stringify(tax));
+
+  // colLetter は A〜Z しか作れない。列が26を超えると読み取り範囲が壊れる。
+  const wide = Object.keys(L4.TABLES).filter(n => L4.TABLES[n].length > 26);
+  ok('どの表も列が26を超えていない', wide.length === 0,
+    wide.map(n => n + '=' + L4.TABLES[n].length).join(' '));
+}
+
+{
+  const L5 = new Function([
+    "const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;",
+    grab('daysBetweenISO'),
+    'const accrueOn = (p, r, d) => p * (r / 100 / 365) * d;',
+    grab('toNum', 'const'),
+    grab('nowISO', 'const'),
+    grab('list', 'const'),
+    grab('fillState'),
+    grab('derive'),
+    'return { derive, fillState };'
+  ].join(String.fromCharCode(10)))();
+
+  let threw = false;
+  try { L5.derive({ debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [] }); }
+  catch (e) { threw = true; }
+  ok('tax を持たない控えを開いても落ちない', !threw);
+  ok('tax が無ければ空で補われる', Array.isArray(L5.fillState({ debts: [] }).tax));
+  ok('tax は年の新しい順に並ぶ',
+    L5.derive({ debts: [], tax: [{ year: 2024 }, { year: 2026 }, { year: 2025 }] })
+      .tax.map(t => t.year).join(',') === '2026,2025,2024');
+
+  ok('読み書きの両方で tax を通している',
+    app.includes('tax: byTable.tax') && app.includes('tax: st.tax'));
+}
+
+// ブラウザ版と SQLite 版で、税と経費の扱いが揃っていること
+{
+  const os = require('os');
+  const TMP2 = path.join(os.tmpdir(), 'saimu-webtax-' + Date.now() + '.db');
+  process.env.SAIMU_DB = TMP2;
+  delete require.cache[require.resolve('../db')];
+  const sdb = require('../db');
+
+  sdb.setTax({ year: 2026, salary: 3000000, bizCost: 250000, levy: 171500 });
+  const row = sdb.getState().tax[0];
+  ok('SQLite 版も同じ項目名で返す',
+    TAX_COLS.every(c => Object.prototype.hasOwnProperty.call(row, c)),
+    TAX_COLS.filter(c => !(c in row)).join(','));
+
+  const tid = sdb.addTxn({ type: 'expense', date: '2026-03-01', amount: 8000,
+                           category: '通信', costRate: 50 });
+  ok('SQLite 版も経費率を保存する', sdb.getState().txns[0].costRate === 50);
+  sdb.setTxnCost(tid, { costRate: 100 });
+  ok('あとから経費率を変えられる', sdb.getState().txns[0].costRate === 100);
+
+  for (const f of [TMP2, TMP2 + '-wal', TMP2 + '-shm']) {
+    try { fs.rmSync(f, { force: true }); } catch (e) {}
+  }
+}
+
 /* ==========================================================
    3. 実際にブラウザで開く
    ========================================================== */

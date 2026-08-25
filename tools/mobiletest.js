@@ -16,7 +16,7 @@ const { spawn, spawnSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const PORT = 5195;
 const WIDTHS = [390, 360];                 // iPhone 12〜15 / 小さめの Android
-const VIEWS = ['dash', 'debts', 'cash', 'goals', 'sim', 'data'];
+const VIEWS = ['dash', 'debts', 'cash', 'goals', 'tax', 'sim', 'data'];
 const DB = path.join(os.tmpdir(), 'saimu-mobile-' + Date.now() + '.db');
 const EDGE = [
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
@@ -70,7 +70,13 @@ const probe = v => `<script>
        const r = el.getBoundingClientRect();
        if (r.height > 0 && r.height < 36) out.tiny++;
      });
-     out.tabs = [...document.querySelectorAll('.nav-item')].length;
+     const navItems = [...document.querySelectorAll('.nav-item')];
+     out.tabs = navItems.length;
+     // タブが増えると1つあたりの幅が痩せる。名前が読めなくなる前に気づきたい。
+     const nav = document.querySelector('.rail-nav');
+     out.navOverflow = nav ? Math.max(0, nav.scrollWidth - nav.clientWidth) : 0;
+     out.navMinW = navItems.length
+       ? Math.round(Math.min(...navItems.map(el => el.getBoundingClientRect().width))) : 0;
    } catch (e) { out.err = e.message; }
    const pre = document.createElement('pre');
    pre.id = 'probe'; pre.textContent = JSON.stringify(out);
@@ -153,8 +159,16 @@ const render = url => {
     }
   }
   // 下部タブは全画面ぶん出ていること
-  const p = render(`http://127.0.0.1:${PORT}/__mf_dash_${WIDTHS[0]}.html`);
-  ok('下部タブに6画面ぶん並ぶ', p && p.tabs === 6, p ? String(p.tabs) : '—');
+  for (const w of WIDTHS) {
+    const p = render(`http://127.0.0.1:${PORT}/__mf_dash_${w}.html`);
+    ok(`${w}px — 下部タブに${VIEWS.length}画面ぶん並ぶ`, p && p.tabs === VIEWS.length,
+      p ? String(p.tabs) : '—');
+    ok(`${w}px — 下部タブが横に溢れない`, p && p.navOverflow <= 1,
+      p ? `${p.navOverflow}px はみ出し` : '—');
+    // 40px を切ると3〜4文字の名前が入らなくなる
+    ok(`${w}px — 各タブに名前が入る幅がある`, p && p.navMinW >= 40,
+      p ? `一番狭いタブが ${p.navMinW}px` : '—');
+  }
 
   console.log('\n' + pass + ' passed, ' + fail + ' failed\n');
   cleanup();

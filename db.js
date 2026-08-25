@@ -95,6 +95,26 @@ CREATE TABLE IF NOT EXISTS fixed_items (
   created_at TEXT NOT NULL
 );
 
+-- ふるさと納税の上限を出すための、年ごとの申告内容。
+-- 収入・経費・社会保険料は収支の記録から集計できるので、ここは 0 のまま置ける。
+-- 0 以外を入れたときだけ、その数字が記録より優先される。
+CREATE TABLE IF NOT EXISTS tax_years (
+  year       INTEGER PRIMARY KEY CHECK(year >= 2000 AND year <= 2200),
+  salary     REAL NOT NULL DEFAULT 0 CHECK(salary >= 0),      -- 給与の年収（額面）
+  biz_income REAL NOT NULL DEFAULT 0 CHECK(biz_income >= 0),  -- 事業・副業の売上
+  biz_cost   REAL NOT NULL DEFAULT 0 CHECK(biz_cost >= 0),    -- その経費
+  social     REAL NOT NULL DEFAULT 0 CHECK(social >= 0),      -- 社会保険料控除
+  blue       REAL NOT NULL DEFAULT 0 CHECK(blue >= 0),        -- 青色申告特別控除
+  life_ins   REAL NOT NULL DEFAULT 0 CHECK(life_ins >= 0),    -- 生命保険料控除
+  ideco      REAL NOT NULL DEFAULT 0 CHECK(ideco >= 0),       -- 小規模企業共済等掛金控除
+  medical    REAL NOT NULL DEFAULT 0 CHECK(medical >= 0),     -- 医療費控除
+  family     REAL NOT NULL DEFAULT 0 CHECK(family >= 0),      -- 配偶者・扶養の控除
+  other_ded  REAL NOT NULL DEFAULT 0 CHECK(other_ded >= 0),   -- その他の所得控除
+  -- 住民税決定通知書に載っている所得割額。入っていれば、これが一番正確なので優先する。
+  levy       REAL NOT NULL DEFAULT 0 CHECK(levy >= 0),
+  memo       TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS goals (
   id                INTEGER PRIMARY KEY CHECK(id = 1),
   target_date       TEXT NOT NULL DEFAULT '',
@@ -255,6 +275,13 @@ function accrue(d, toISO) {
   db.exec(`ALTER TABLE txns ADD COLUMN card_id TEXT NOT NULL DEFAULT ''`);
 })();
 
+/** 支出を経費として何割計上するかを持たせる。0 は経費にしない、100 は全額。 */
+(function migrateTxnCost() {
+  const cols = new Set(db.prepare('PRAGMA table_info(txns)').all().map(c => c.name));
+  if (cols.has('cost_rate')) return;
+  db.exec(`ALTER TABLE txns ADD COLUMN cost_rate INTEGER NOT NULL DEFAULT 0`);
+})();
+
 /* ---------- 読み取り ---------- */
 
 const Q = {
@@ -264,8 +291,13 @@ const Q = {
                             min_payment AS minPayment, created_at AS createdAt
                      FROM debts ORDER BY created_at, rowid`),
   txns: db.prepare(`SELECT id, type, date, amount, category, memo,
-                           pay_month AS payMonth, card_id AS cardId
+                           pay_month AS payMonth, card_id AS cardId,
+                           cost_rate AS costRate
                     FROM txns ORDER BY date DESC, rowid DESC`),
+  tax: db.prepare(`SELECT year, salary, biz_income AS bizIncome, biz_cost AS bizCost,
+                          social, blue, life_ins AS lifeIns, ideco, medical, family,
+                          other_ded AS otherDed, levy, memo
+                   FROM tax_years ORDER BY year DESC`),
   cards: db.prepare(`SELECT id, name, created_at AS createdAt
                      FROM cards ORDER BY created_at, rowid`),
   cardBills: db.prepare(`SELECT id, card_id AS cardId, pay_month AS payMonth, amount, memo
@@ -313,6 +345,7 @@ function getState() {
     borrows: Q.borrows.all(),
     fixed: Q.fixed.all(),
     txns: Q.txns.all(),
+    tax: Q.tax.all(),
     repayments: Q.reps.all(),
     goals: Q.goals.get() || { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 }
   };
@@ -513,10 +546,38 @@ function addTxn(b) {
   // 実在しないカードを指していたら現金・口座払いに倒す
   const cardId = type === 'income' ? '' : str(b.cardId, 40);
   const card = cardId && Q.card.get(cardId) ? cardId : '';
-  db.prepare(`INSERT INTO txns (id, type, date, amount, category, memo, pay_month, card_id)
-              VALUES (?,?,?,?,?,?,?,?)`)
-    .run(id, type, date, amount, str(b.category, 30) || 'その他', str(b.memo, 60), payMonth, card);
+  // 経費は支出だけの概念。収入に付いていても無視する。
+  const costRate = type === 'income' ? 0 : clampInt(b.costRate, 0, 100);
+  db.prepare(`INSERT INTO txns (id, type, date, amount, category, memo, pay_month, card_id, cost_rate)
+              VALUES (?,?,?,?,?,?,?,?,?)`)
+    .run(id, type, date, amount, str(b.category, 30) || 'その他', str(b.memo, 60),
+         payMonth, card, costRate);
   return id;
+}
+
+/**
+ * ある年のあるカテゴリの支出を、まとめて経費にする。
+ * 12ヶ月ぶんの通信費を1件ずつ触るのはスマホでは現実的でない。
+ */
+function setTxnCostBulk(b) {
+  const year = clampInt(b.year, 2000, 2200);
+  if (!year) throw new BadRequest('年を指定してください');
+  const category = str(b.category, 30);
+  if (!category) throw new BadRequest('カテゴリを指定してください');
+  const rate = clampInt(b.costRate, 0, 100);
+  const r = db.prepare(`UPDATE txns SET cost_rate = ?
+                        WHERE type = 'expense' AND category = ?
+                          AND date >= ? AND date <= ?`)
+    .run(rate, category, year + '-01-01', year + '-12-31');
+  return r.changes;
+}
+
+/** 既にある支出を、あとから経費に切り替える。金額や日付はここでは触らない。 */
+function setTxnCost(id, b) {
+  const t = db.prepare('SELECT type FROM txns WHERE id = ?').get(id);
+  if (!t) throw new BadRequest('その記録は見つかりません');
+  if (t.type !== 'expense') throw new BadRequest('経費にできるのは支出だけです');
+  db.prepare('UPDATE txns SET cost_rate = ? WHERE id = ?').run(clampInt(b.costRate, 0, 100), id);
 }
 
 function deleteTxn(id) {
@@ -573,6 +634,13 @@ function deleteCardBill(id) {
 /* ---------- 毎月の固定収支 ---------- */
 
 /** 毎月何日か。0 は未設定。31 を超える指定は月末に丸める。 */
+/** 整数に丸めて範囲に収める。範囲外や数字でないものは 0 にする。 */
+function clampInt(v, lo, hi) {
+  const n = Math.round(num(v));
+  if (!Number.isFinite(n) || n < lo || n > hi) return 0;
+  return n;
+}
+
 function dayOfMonth(v) {
   const d = Math.round(num(v));
   if (!Number.isFinite(d) || d <= 0) return 0;
@@ -611,6 +679,36 @@ function deleteFixed(id) {
   db.prepare('DELETE FROM fixed_items WHERE id = ?').run(id);
 }
 
+/* ---------- ふるさと納税（年ごとの申告内容） ---------- */
+
+/**
+ * 年の内容を丸ごと差し替える。0 は「未入力」であって「ゼロと申告した」ではない。
+ * 未入力のところは画面側が収支の記録から集計して埋める。
+ */
+function setTax(b) {
+  const year = clampInt(b.year, 2000, 2200);
+  if (!year) throw new BadRequest('年を指定してください');
+  const n = k => Math.max(0, num(b[k]));
+  db.prepare(`INSERT INTO tax_years
+                (year, salary, biz_income, biz_cost, social, blue, life_ins, ideco,
+                 medical, family, other_ded, levy, memo)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+              ON CONFLICT(year) DO UPDATE SET
+                salary=excluded.salary, biz_income=excluded.biz_income,
+                biz_cost=excluded.biz_cost, social=excluded.social, blue=excluded.blue,
+                life_ins=excluded.life_ins, ideco=excluded.ideco, medical=excluded.medical,
+                family=excluded.family, other_ded=excluded.other_ded, levy=excluded.levy,
+                memo=excluded.memo`)
+    .run(year, n('salary'), n('bizIncome'), n('bizCost'), n('social'), n('blue'),
+         n('lifeIns'), n('ideco'), n('medical'), n('family'), n('otherDed'), n('levy'),
+         str(b.memo, 60));
+  return year;
+}
+
+function deleteTax(year) {
+  db.prepare('DELETE FROM tax_years WHERE year = ?').run(clampInt(year, 2000, 2200));
+}
+
 /* ---------- 目標 ---------- */
 
 function setGoals(b) {
@@ -625,7 +723,8 @@ function setGoals(b) {
 function wipe() {
   tx(() => {
     db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
-             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;`);
+             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;
+             DELETE FROM tax_years;`);
     db.prepare(`UPDATE goals SET target_date='', monthly_repay=0, emergency=0, emergency_current=0
                 WHERE id=1`).run();
   });
@@ -636,7 +735,8 @@ function importState(p) {
   if (!p || !Array.isArray(p.debts)) throw new BadRequest('バックアップの形式が違います');
   tx(() => {
     db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
-             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;`);
+             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;
+             DELETE FROM tax_years;`);
 
     const insC = db.prepare('INSERT OR IGNORE INTO cards (id,name,created_at) VALUES (?,?,?)');
     const cardIds = new Set();
@@ -671,8 +771,9 @@ function importState(p) {
                f.initial, f.rate, f.minPayment, dateOr(d.createdAt, localToday()));
     }
 
-    const insT = db.prepare(`INSERT OR IGNORE INTO txns (id,type,date,amount,category,memo,pay_month,card_id)
-                             VALUES (?,?,?,?,?,?,?,?)`);
+    const insT = db.prepare(`INSERT OR IGNORE INTO txns
+                             (id,type,date,amount,category,memo,pay_month,card_id,cost_rate)
+                             VALUES (?,?,?,?,?,?,?,?,?)`);
     for (const t of (p.txns || [])) {
       const amt = num(t.amount);
       if (!(amt > 0)) continue;
@@ -682,7 +783,8 @@ function importState(p) {
       insT.run(str(t.id, 40) || uid(), type, date, amt,
                str(t.category, 30) || 'その他', str(t.memo, 60),
                type === 'income' ? monthOf(date) : payMonthOf(t, date),
-               cardIds.has(cid) ? cid : '');
+               cardIds.has(cid) ? cid : '',
+               type === 'income' ? 0 : clampInt(t.costRate, 0, 100));
     }
 
     const insR = db.prepare(`INSERT OR IGNORE INTO repayments (id,debt_id,date,amount,interest,principal,memo)
@@ -713,6 +815,11 @@ function importState(p) {
       insF.run(str(f.id, 40) || uid(), f.type === 'income' ? 'income' : 'expense',
                nm, dayOfMonth(f.day), str(f.category, 30) || nm, amt, str(f.memo, 60),
                dateOr(f.createdAt, localToday()));
+    }
+
+    for (const t of (p.tax || [])) {
+      // setTax は年が壊れていると投げる。取り込みでは1件捨てるだけにする。
+      if (clampInt(t.year, 2000, 2200)) setTax(t);
     }
 
     const g = p.goals || {};
@@ -825,6 +932,7 @@ module.exports = {
   addRepayment, deleteRepayment,
   addBorrow, deleteBorrow,
   addFixed, updateFixed, deleteFixed,
+  setTax, deleteTax, setTxnCost, setTxnCostBulk,
   addTxn, deleteTxn,
   setGoals,
   wipe, importState, loadSample, backup

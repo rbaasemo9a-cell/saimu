@@ -31,18 +31,22 @@ const TABLES = {
   debts: ['id', 'name', 'principal', 'interestAccrued', 'accruedAt',
           'originPrincipal', 'originInterest', 'originDate',
           'initial', 'rate', 'minPayment', 'createdAt'],
-  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId'],
+  txns: ['id', 'type', 'date', 'amount', 'category', 'memo', 'payMonth', 'cardId', 'costRate'],
   cards: ['id', 'name', 'createdAt'],
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
   fixed: ['id', 'type', 'name', 'day', 'category', 'amount', 'memo', 'createdAt'],
+  tax: ['year', 'salary', 'bizIncome', 'bizCost', 'social', 'blue', 'lifeIns', 'ideco',
+        'medical', 'family', 'otherDed', 'levy', 'memo'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
 const NUMERIC = new Set(['principal', 'interestAccrued', 'originPrincipal', 'originInterest',
                          'initial', 'rate', 'minPayment',
                          'amount', 'interest', 'monthlyRepay', 'emergency', 'emergencyCurrent', 'day',
+                         'costRate', 'year', 'salary', 'bizIncome', 'bizCost', 'social', 'blue',
+                         'lifeIns', 'ideco', 'medical', 'family', 'otherDed', 'levy',
                          'revision']);
 
 /* ---------- 利息（db.js と同じ規則） ---------- */
@@ -390,6 +394,7 @@ async function readAll() {
     cardBills: byTable.cardBills,
     borrows: byTable.borrows,
     fixed: byTable.fixed,
+    tax: byTable.tax,
     txns: byTable.txns,
     repayments: byTable.repayments,
     goals: {
@@ -406,6 +411,7 @@ async function writeAll(st) {
   const payload = {
     debts: st.debts, txns: st.txns, repayments: st.repayments,
     cards: st.cards, cardBills: st.cardBills, borrows: st.borrows, fixed: st.fixed,
+    tax: st.tax,
     goals: [st.goals],
     meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
   };

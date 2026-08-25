@@ -244,6 +244,17 @@ async function api(req, res, pathname) {
       if (m === 'DELETE') { db.deleteFixed(id); return ok(); }
       break;
 
+    case 'tax':
+      if (m === 'POST')   { db.setTax(body); return ok(); }
+      if (m === 'DELETE') { db.deleteTax(id); return ok(); }
+      break;
+
+    // 既にある支出を、あとから経費に切り替える
+    case 'txncost':
+      if (m === 'PUT')    { db.setTxnCost(id, body); return ok(); }
+      if (m === 'POST')   { db.setTxnCostBulk(body); return ok(); }
+      break;
+
     case 'goals':
       if (m === 'PUT')    { db.setGoals(body); return ok(); }
       break;

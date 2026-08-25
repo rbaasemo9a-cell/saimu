@@ -152,6 +152,55 @@ const HARNESS = `
     dlg.close('cancel');                          // headless では Esc が届かないことがある
     await wait(80);
     ok('Esc / close() で閉じる', !dlg.open);
+
+    // --- 10. ふるさと納税: 申告内容を保存すると上限が出る ---
+    nav('tax'); await wait(200);
+    ok('ふるさと納税の画面が開く', $('#view-tax').innerHTML.includes('控除される上限'));
+    $('[data-act="edit-tax"]').click();
+    await wait(120);
+    ok('申告内容のダイアログが開く', dlg.open && $('#x-sal') !== null);
+    $('#x-sal').value = '4000000';
+    $('#x-sal').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#x-soc').value = '576000';
+    $('#x-soc').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#dlgOk').click();
+    const taxSaved = await waitFor(async () =>
+      ((await (await fetch('/api/state')).json()).tax || []).length === 1);
+    ok('申告内容が保存される', taxSaved, 'submit=' + diag.submit + ' post=' + diag.posts);
+    // 年収400万・社会保険57.6万なら上限は42,000円（総務省の目安表と同じ）
+    ok('保存した内容で上限が計算されて画面に出る',
+      await waitFor(async () => $('#view-tax').innerText.includes('42,000')),
+      $('#view-tax').innerText.slice(0, 200).replace(/\\n/g, ' '));
+
+    // --- 11. 経費の割合を変えると計上額が変わる ---
+    nav('cash'); await wait(150);
+    $('[data-act="add-expense"]').click();
+    await wait(120);
+    $('#t-amt').value = '10000';
+    $('#t-amt').dispatchEvent(new Event('input', { bubbles: true }));
+    $('#t-cat').value = '通信';
+    $('#t-cat').dispatchEvent(new Event('change', { bubbles: true }));
+    ok('支出の入力に経費の割合がある', $('#t-cost') !== null);
+    $('#t-cost').value = '50';
+    $('#t-cost').dispatchEvent(new Event('change', { bubbles: true }));
+    $('#dlgOk').click();
+    const costSaved = await waitFor(async () =>
+      (await (await fetch('/api/state')).json()).txns.some(t => t.costRate === 50));
+    ok('支出を経費として登録できる', costSaved);
+
+    nav('tax'); await wait(200);
+    const sel = $('[data-cost-cat="通信"]');
+    ok('経費の一覧にカテゴリが出る', sel !== null);
+    if (sel) {
+      sel.value = '100';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      const bulk = await waitFor(async () =>
+        (await (await fetch('/api/state')).json()).txns.filter(t => t.costRate === 100).length >= 1);
+      ok('カテゴリごとにまとめて経費にできる', bulk);
+      ok('計上額が画面に反映される',
+        await waitFor(async () => $('#view-tax').innerText.includes('10,000')));
+    }
+
   } catch (e) {
     out.push('FAIL  例外: ' + e.message);
   }

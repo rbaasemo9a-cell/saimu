@@ -364,6 +364,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
   .nav-item[data-view="debts"] span::after { content: "借入"; }
   .nav-item[data-view="cash"]  span::after { content: "収支"; }
   .nav-item[data-view="goals"] span::after { content: "目標"; }
+  .nav-item[data-view="tax"]   span::after { content: "ふるさと"; }
   .nav-item[data-view="sim"]   span::after { content: "試算"; }
   .nav-item[data-view="data"]  span::after { content: "データ"; }
   .nav-item[aria-current="page"] { background: none; color: var(--accent); font-weight: 700; }
@@ -623,6 +624,10 @@ details.tableview > div { margin-top: 8px; }
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.4"/></svg>
         <span>目標</span>
       </button>
+      <button class="nav-item" data-view="tax">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V7l8-4 8 4v14"/><path d="M4 21h16"/><path d="M9 21v-6h6v6"/><path d="M9 10h6"/></svg>
+        <span>ふるさと納税</span>
+      </button>
       <button class="nav-item" data-view="sim">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>
         <span>シミュレーション</span>
@@ -643,6 +648,7 @@ details.tableview > div { margin-top: 8px; }
     <section class="view" id="view-debts" data-view="debts"></section>
     <section class="view" id="view-cash" data-view="cash"></section>
     <section class="view" id="view-goals" data-view="goals"></section>
+    <section class="view" id="view-tax" data-view="tax"></section>
     <section class="view" id="view-sim" data-view="sim"></section>
     <section class="view" id="view-data" data-view="data"></section>
   </main>
@@ -677,7 +683,7 @@ details.tableview > div { margin-top: 8px; }
   const INCOME_CATS  = ['給与', '賞与', '配達（現金回収）', '副業', '事業', '年金・給付', 'その他収入'];
   const EXPENSE_CATS = ['住居', '食費', '水道光熱', '通信', '交通', '保険', '医療',
                         '日用品', '被服', '教育', '交際費', '娯楽',
-                        '社会保険', '税金', '預かり金の返却', 'その他支出'];
+                        '社会保険', '税金', 'ふるさと納税', '預かり金の返却', 'その他支出'];
 
   const yen  = n => '¥' + Math.round(n).toLocaleString('ja-JP');
   const yen0 = n => Math.round(n).toLocaleString('ja-JP');
@@ -1087,6 +1093,210 @@ details.tableview > div { margin-top: 8px; }
              need: Math.max(0, -left),
              // 固定収支を1つも登録していないうちは、案内だけ出す
              has: rows('fixed').length > 0 };
+  }
+
+  /* ---------- ふるさと納税 ---------- */
+
+  // 事業の売上として数えるカテゴリ。配達の現金回収もここに入る。
+  const TAX_BIZ_IN  = ['配達（現金回収）', '副業', '事業'];
+  const TAX_CUSTODY = '預かり金の返却';
+  const TAX_SOCIAL  = '社会保険';
+  const TAX_DONATE  = 'ふるさと納税';
+  // 経費に計上できる割合の選択肢。家事按分はだいたいこの刻みで足りる。
+  const COST_RATES = [0, 25, 50, 75, 100];
+
+  /**
+   * その年の記録から、申告に使う数字を集める。
+   *
+   * 給与はここに入れない。この画面が欲しいのは額面だが、記録しているのは手取りで、
+   * 額面は源泉徴収票を見ないと分からない。勝手に手取りを使うと上限を低く出してしまう。
+   */
+  function taxAuto(year) {
+    const y = String(year);
+    const inYear = t => String(t.date || '').slice(0, 4) === y;
+    const all = rows('txns').filter(inYear);
+    const ti = all.filter(t => t.type === 'income');
+    const te = all.filter(t => t.type === 'expense');
+    const sum = (a, f) => a.reduce((s, t) => s + (f ? f(t) : t.amount), 0);
+
+    const gross = sum(ti.filter(t => TAX_BIZ_IN.includes(t.category)));
+    const custody = sum(te.filter(t => t.category === TAX_CUSTODY));
+    // 預かり金は客から預かっただけで自分の売上ではない。返した分を引くと報酬が残る。
+    const bizIncome = Math.max(0, gross - custody);
+    // 返した預かり金は経費ではない。上で売上から引いてあるので、ここでも数えると二重になる。
+    const costRows = te.filter(t => (t.costRate || 0) > 0 && t.category !== TAX_CUSTODY);
+    const bizCost = sum(costRows, t => t.amount * (t.costRate || 0) / 100);
+    const social = sum(te.filter(t => t.category === TAX_SOCIAL));
+    const donated = sum(te.filter(t => t.category === TAX_DONATE));
+    // 記録のある月数。年の途中なら、上限も途中までの数字で出ていることになる。
+    const months = new Set(all.map(t => String(t.date).slice(0, 7))).size;
+    return { gross, custody, bizIncome, bizCost, social, donated,
+             costCount: costRows.length, months, txnCount: all.length };
+  }
+
+  /**
+   * 手で入れた数字があればそれ、無ければ記録から集めた数字。
+   * 0 は「未入力」であって「ゼロと申告した」ではない。
+   */
+  function taxInput(year) {
+    const saved = rows('tax').find(t => Number(t.year) === Number(year)) || {};
+    const auto = taxAuto(year);
+    const typed = k => Math.max(0, Number(saved[k]) || 0);
+    const or = (k, a) => (typed(k) > 0 ? typed(k) : a);
+    return {
+      year, saved, auto,
+      salary: typed('salary'),          // 額面。記録からは取れないので手入力だけ
+      bizIncome: or('bizIncome', auto.bizIncome),
+      bizCost: or('bizCost', auto.bizCost),
+      social: or('social', auto.social),
+      blue: typed('blue'),
+      lifeIns: typed('lifeIns'), ideco: typed('ideco'), medical: typed('medical'),
+      family: typed('family'), otherDed: typed('otherDed'), levy: typed('levy'),
+      isTyped: k => typed(k) > 0
+    };
+  }
+
+  /** その年の支出をカテゴリごとにまとめる。経費の一括設定に使う。 */
+  function costByCategory(year) {
+    const y = String(year);
+    const map = new Map();
+    rows('txns')
+      .filter(t => t.type === 'expense' && String(t.date || '').slice(0, 4) === y
+                   && t.category !== TAX_CUSTODY)
+      .forEach(t => {
+        const g = map.get(t.category) ||
+          { category: t.category, count: 0, total: 0, counted: 0, rates: new Set() };
+        g.count++; g.total += t.amount;
+        g.counted += t.amount * (t.costRate || 0) / 100;
+        g.rates.add(t.costRate || 0);
+        map.set(t.category, g);
+      });
+    return [...map.values()]
+      .map(g => Object.assign(g, {
+        // 全部同じ割合なら、その割合を選択肢に出せる。違うなら「混在」
+        rate: g.rates.size === 1 ? [...g.rates][0] : null
+      }))
+      .sort((a, b) => b.counted - a.counted || b.total - a.total);
+  }
+
+  /**
+   * 税額の計算に使う数字。年で変わるので、散らばらないようここにまとめる。
+   * 令和7年(2025年)の改正を織り込んである（給与所得控除の最低保障 55万→65万、
+   * 所得税の基礎控除の上乗せ）。年が変わったらここだけ直せばよい。
+   * 上限は「目安」であって申告の代わりにはならない。最後は住民税決定通知書で確かめる。
+   */
+  const TAX = {
+    // 給与所得控除。収入がその額以下なら、その式を使う。
+    salaryDeduction: [
+      [1900000, () => 650000],
+      [3600000, r => r * 0.30 + 80000],
+      [6600000, r => r * 0.20 + 440000],
+      [8500000, r => r * 0.10 + 1100000],
+      [Infinity, () => 1950000]
+    ],
+    // 所得税の基礎控除。令和7・8年分は所得に応じて上乗せがある。
+    basicIncome: [[1320000, 950000], [3360000, 880000], [4890000, 680000],
+                  [6550000, 630000], [23500000, 580000], [24000000, 480000],
+                  [24500000, 320000], [25000000, 160000], [Infinity, 0]],
+    // 住民税の基礎控除。所得税と違って据え置き。この差が調整控除の理由。
+    basicResident: [[24000000, 430000], [24500000, 290000], [25000000, 150000], [Infinity, 0]],
+    // 所得税の税率。課税所得がその額以下なら、その税率。
+    incomeRate: [[1950000, 0.05], [3300000, 0.10], [6950000, 0.20], [9000000, 0.23],
+                 [18000000, 0.33], [40000000, 0.40], [Infinity, 0.45]],
+    residentRate: 0.10,       // 住民税の所得割（市町村6% + 都道府県4%）
+    reconstruction: 1.021,    // 復興特別所得税。2037年分まで所得税に上乗せされる
+    selfPay: 2000,            // ふるさと納税の自己負担額
+    specialCap: 0.20,         // 住民税特例分の上限。所得割額に対する割合
+    basicCap: 0.30,           // 住民税基本分の対象にできる寄付額の上限。総所得に対する割合
+    adjustBase: 50000         // 調整控除に使う人的控除の差（基礎控除の分）
+  };
+
+  /** 区切り表から、値に当てはまる行の中身を取り出す。 */
+  const taxPick = (table, v) => (table.find(row => v <= row[0]) || table[table.length - 1])[1];
+
+  /** 課税所得は千円未満を切り捨てる。 */
+  const floor1000 = v => Math.floor(Math.max(0, v) / 1000) * 1000;
+
+  /** 給与の額面から給与所得を出す。 */
+  function salaryIncome(revenue) {
+    if (revenue <= 0) return 0;
+    return Math.max(0, revenue - taxPick(TAX.salaryDeduction, revenue)(revenue));
+  }
+
+  /**
+   * 調整控除。住民税の基礎控除が所得税より5万円少ないぶんを埋め合わせる仕組み。
+   * 入れないと所得割額を多く見積もり、ふるさと納税の上限も多く出てしまう。
+   */
+  function adjustCredit(taxableResident) {
+    if (taxableResident <= 0 || taxableResident > 25000000) return 0;
+    if (taxableResident <= 2000000) {
+      return Math.min(TAX.adjustBase, taxableResident) * 0.05;
+    }
+    return Math.max(2500, (TAX.adjustBase - (taxableResident - 2000000)) * 0.05);
+  }
+
+  /**
+   * ふるさと納税の控除上限額（自己負担が2,000円で収まる寄付額）。
+   *
+   * 上限を決めているのは住民税の「特例分」で、所得割額の20%までしか使えない。
+   *   (寄付額 − 2,000) × (100% − 住民税10% − 所得税率×1.021) = 所得割額 × 20%
+   * これを寄付額について解いたものが下の式。
+   *
+   * levy（住民税決定通知書の所得割額）が入っていればそれを使う。
+   * 通知書の実額が一番正確で、控除の見落としがあっても影響を受けない。
+   *
+   * 途中の数字も全部返す。上限だけ出されても検算のしようがない。
+   */
+  function furusato(input) {
+    const at = k => Math.max(0, Number(input[k]) || 0);
+    const salaryRev = at('salary');
+    const bizRev = at('bizIncome');
+    const bizCost = at('bizCost');
+    const blue = at('blue');
+
+    const salaryPart = salaryIncome(salaryRev);
+    const bizPart = Math.max(0, bizRev - bizCost - blue);
+    const total = salaryPart + bizPart;                 // 合計所得金額
+
+    // 所得税と住民税で控除額が違うものもあるが、ここでは同じとして扱う。
+    // 住民税の控除を多めに見るぶん所得割額は小さめに出て、上限は控えめになる。
+    // ふるさと納税では出しすぎが損なので、ずれるなら少ない側が安全。
+    const otherDeductions = ['social', 'lifeIns', 'ideco', 'medical', 'family', 'otherDed']
+      .reduce((a, k) => a + at(k), 0);
+
+    const basicI = taxPick(TAX.basicIncome, total);
+    const basicR = taxPick(TAX.basicResident, total);
+    const taxableI = floor1000(total - basicI - otherDeductions);
+    const taxableR = floor1000(total - basicR - otherDeductions);
+
+    const rate = taxPick(TAX.incomeRate, taxableI);
+    const adjust = adjustCredit(taxableR);
+    const levyCalc = Math.max(0, taxableR * TAX.residentRate - adjust);
+    const levy = at('levy') > 0 ? at('levy') : levyCalc;
+    const fromLevy = at('levy') > 0;
+
+    // 分母は「特例分が寄付額のうち何割を受け持つか」。所得税率が高いほど小さくなり、
+    // 同じ所得割額でも上限は大きくなる。
+    const denom = 0.9 - rate * TAX.reconstruction;
+    let limit = 0, capped = false;
+    if (levy > 0 && denom > 0) {
+      limit = levy * TAX.specialCap / denom + TAX.selfPay;
+      // 住民税基本分は総所得の30%までしか対象にできない。ここで頭打ちになることもある。
+      const hardCap = total * TAX.basicCap;
+      if (hardCap > 0 && limit > hardCap) { limit = hardCap; capped = true; }
+    }
+    // 端数を切り上げて申し込むと自己負担が増える。千円単位で切り捨てておく。
+    limit = Math.floor(limit / 1000) * 1000;
+    // 上限ちょうどを狙うと、年末に収入が増えただけで足が出る。少し内側を勧める。
+    const safe = Math.floor(limit * 0.9 / 1000) * 1000;
+
+    return {
+      salaryRev, salaryPart, bizRev, bizCost, blue, bizPart, total,
+      basicI, basicR, otherDeductions, taxableI, taxableR,
+      rate, adjust, levyCalc, levy, fromLevy, limit, safe, capped,
+      // 所得割が無ければ、そもそも控除される住民税が無い
+      noLevy: levy <= 0
+    };
   }
 
   /**
@@ -2142,6 +2352,188 @@ details.tableview > div { margin-top: 8px; }
        </div>`;
   };
 
+  /* ---------- ふるさと納税 ---------- */
+
+  let taxYear = new Date().getFullYear();
+
+  /** 内訳表の1行。ラベル・金額・注記。 */
+  function taxRow(label, amount, note, cls) {
+    return `<tr><td>${label}</td><td class="r ${cls || ''}">${amount}</td>
+      <td class="col-memo" style="color:var(--ink-3);font-size:12px">${note || ''}</td></tr>`;
+  }
+
+  V.tax = function () {
+    const root = document.getElementById('view-tax');
+    const inp = taxInput(taxYear);
+    const r = furusato(inp);
+    const auto = inp.auto;
+    const thisYear = new Date().getFullYear();
+    const years = [thisYear, thisYear - 1, thisYear - 2];
+    const left = Math.max(0, r.limit - auto.donated);
+
+    // 年の途中なら、記録もまだ途中までしかない
+    const partial = taxYear === thisYear && auto.months > 0 && auto.months < 12;
+    const paceNote = partial
+      ? `いまは${auto.months}ヶ月ぶんの記録です。このペースなら事業所得は年間で約
+         ${yen((auto.bizIncome - auto.bizCost) / auto.months * 12)} になります。`
+      : '';
+
+    let verdict;
+    if (r.noLevy) {
+      verdict = `<div class="callout warn">${ICON.warn}<div>この内容だと住民税の所得割が出ません。
+        ふるさと納税をしても差し引く税金が無いので、寄付した額がそのまま自己負担になります。
+        給与の額面をまだ入れていないなら、<b>編集</b>から入れてください。</div></div>`;
+    } else if (!inp.isTyped('salary') && !inp.isTyped('levy') && inp.bizIncome > 0) {
+      verdict = `<div class="callout info">${ICON.info}<div>いまは事業（配達・副業）の分だけで計算しています。
+        給与があるなら、源泉徴収票の「支払金額」を<b>編集</b>から入れてください。上限が大きく変わります。</div></div>`;
+    } else if (r.capped) {
+      verdict = `<div class="callout warn">${ICON.warn}<div>寄付できる額が総所得の30%で頭打ちになりました。
+        これを超えるぶんは住民税から差し引けません。</div></div>`;
+    } else {
+      verdict = `<div class="callout info">${ICON.ok}<div>${yen(r.safe)}までにしておくと、
+        年末に収入が増えても自己負担が2,000円で収まりやすくなります。${paceNote}</div></div>`;
+    }
+
+    const cats = costByCategory(taxYear);
+    const costTotal = cats.reduce((a, c) => a + c.counted, 0);
+
+    root.innerHTML =
+      headHTML('ふるさと納税',
+        '収入と経費と控除から、自己負担が2,000円で収まる寄付額の上限を計算します。' +
+        '住民税の所得割額の20%までしか特例分を使えない、という決まりから逆算しています。') +
+
+      `<div class="panel">
+         <div class="panel-head">
+           <h2>${taxYear}年の上限</h2>
+           <div style="display:flex;gap:8px;align-items:center">
+             <select id="tax-year" aria-label="対象の年">
+               ${years.map(y => `<option value="${y}"${y === taxYear ? ' selected' : ''}>${y}年</option>`).join('')}
+             </select>
+             <button class="btn sm" data-act="edit-tax">編集</button>
+           </div>
+         </div>
+         <div class="panel-body">
+           <div class="grid g-3" style="gap:14px">
+             <div class="tile">
+               <span class="tile-label">控除される上限</span>
+               <span class="tile-value ${r.limit > 0 ? 'pos' : ''}">${yen(r.limit)}</span>
+               <span class="tile-delta">自己負担 ${yen(TAX.selfPay)} で収まる寄付額</span>
+             </div>
+             <div class="tile">
+               <span class="tile-label">安全な目安</span>
+               <span class="tile-value">${yen(r.safe)}</span>
+               <span class="tile-delta">上限の9割。収入が読み切れないうちはこちら</span>
+             </div>
+             <div class="tile">
+               <span class="tile-label">今年の残り</span>
+               <span class="tile-value">${yen(left)}</span>
+               <span class="tile-delta">寄付済み ${yen(auto.donated)}${auto.donated > 0 ? '' : '（カテゴリ「ふるさと納税」の支出を数えます）'}</span>
+             </div>
+           </div>
+           ${verdict}
+         </div>
+       </div>
+
+       <div class="grid g-2" style="margin-top:16px">
+         <div class="panel">
+           <div class="panel-head"><h2>計算の内訳</h2><span class="hint">上から順に引いた結果</span></div>
+           <div class="panel-body">
+             <div class="table-wrap"><table class="ledger">
+               <tbody>
+                 ${taxRow('給与の額面', yen(r.salaryRev), inp.isTyped('salary') ? '源泉徴収票の支払金額' : '未入力')}
+                 ${taxRow('− 給与所得控除', yen(r.salaryRev - r.salaryPart), '')}
+                 ${taxRow('<b>= 給与所得</b>', '<b>' + yen(r.salaryPart) + '</b>', '')}
+                 ${taxRow('事業・副業の売上', yen(r.bizRev),
+                    inp.isTyped('bizIncome') ? '手入力'
+                    : auto.custody > 0
+                      ? '記録から。受取 ' + yen(auto.gross) + ' − 預かり金の返却 ' + yen(auto.custody)
+                      : '記録から')}
+                 ${taxRow('− 経費', yen(r.bizCost),
+                    inp.isTyped('bizCost') ? '手入力' : '記録から。' + auto.costCount + '件')}
+                 ${r.blue > 0 ? taxRow('− 青色申告特別控除', yen(r.blue), '') : ''}
+                 ${taxRow('<b>= 事業所得</b>', '<b>' + yen(r.bizPart) + '</b>', '')}
+                 ${taxRow('<b>= 合計所得</b>', '<b>' + yen(r.total) + '</b>', '')}
+                 ${taxRow('− 社会保険料控除', yen(inp.social),
+                    inp.isTyped('social') ? '手入力' : '記録から。カテゴリ「社会保険」')}
+                 ${taxRow('− その他の所得控除', yen(r.otherDeductions - inp.social),
+                    '生命保険・iDeCo・医療費・扶養など')}
+                 ${taxRow('− 基礎控除', yen(r.basicI) + ' / ' + yen(r.basicR), '所得税 / 住民税')}
+                 ${taxRow('<b>= 課税所得</b>', '<b>' + yen(r.taxableI) + ' / ' + yen(r.taxableR) + '</b>',
+                    '所得税 / 住民税。千円未満は切り捨て')}
+                 ${taxRow('所得税の税率', pct(r.rate * 100), '課税所得から決まる')}
+                 ${taxRow('住民税の所得割額', yen(r.levy),
+                    r.fromLevy ? '通知書の実額' : '課税所得×10% − 調整控除 ' + yen(r.adjust), 'amt-pos')}
+                 ${taxRow('<b>→ 控除される上限</b>', '<b>' + yen(r.limit) + '</b>',
+                    '所得割額の20% ÷ (90% − 税率×1.021) + ' + yen(TAX.selfPay))}
+               </tbody>
+             </table></div>
+             <p class="hint" style="margin-top:10px">
+               住民税決定通知書（毎年6月にもらう紙）の<b>所得割額</b>を編集で入れると、
+               控除の入れ忘れに左右されず、一番正確に出ます。
+             </p>
+           </div>
+         </div>
+
+         <div class="panel">
+           <div class="panel-head"><h2>経費（${taxYear}年）</h2>
+             <span class="hint">計上額 ${yen(costTotal)}</span></div>
+           <div class="panel-body">
+             ${cats.length ? `
+               <p class="hint" style="margin-bottom:10px">
+                 カテゴリごとに、経費として計上する割合を選びます。
+                 スマホ代のように仕事と私用が混ざるものは、仕事で使っている割合にします。
+               </p>
+               <div class="table-wrap"><table class="ledger">
+                 <thead><tr><th>カテゴリ</th><th class="r">支出</th><th>経費の割合</th><th class="r">計上額</th></tr></thead>
+                 <tbody>${cats.map(c => `<tr>
+                   <td>${esc(c.category)}<br><span style="color:var(--ink-3);font-size:11.5px">${c.count}件</span></td>
+                   <td class="r">${yen(c.total)}</td>
+                   <td><select data-cost-cat="${esc(c.category)}" aria-label="${esc(c.category)}の経費の割合">
+                     ${c.rate === null ? '<option value="" selected>混在</option>' : ''}
+                     ${COST_RATES.map(v =>
+                       `<option value="${v}"${c.rate === v ? ' selected' : ''}>${v}%</option>`).join('')}
+                   </select></td>
+                   <td class="r ${c.counted > 0 ? 'amt-pos' : ''}">${c.counted > 0 ? yen(c.counted) : '—'}</td>
+                 </tr>`).join('')}</tbody>
+               </table></div>
+               <p class="hint" style="margin-top:10px">
+                 「預かり金の返却」はここに出しません。売上から先に引いてあるので、
+                 経費にも数えると二重になります。
+               </p>`
+             : `<p class="hint">${taxYear}年の支出がまだ記録されていません。
+                 「収入・支出」で記録すると、ここでカテゴリごとに経費にできます。</p>`}
+           </div>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>この計算について</h2></div>
+         <div class="panel-body">
+           <ul class="hint" style="margin:0;padding-left:18px;line-height:1.9">
+             <li>令和7年(2025年)の改正を織り込んでいます。給与所得控除の最低保障 65万円、所得税の基礎控除の上乗せ。</li>
+             <li>生命保険料控除などは所得税と住民税で上限が違いますが、ここでは同じ額として扱います。
+                 住民税の控除を多めに見るぶん、上限は控えめに出ます。出しすぎるより安全な側です。</li>
+             <li>ワンストップ特例を使っても上限は同じです。6自治体以上に申し込むと確定申告が必要になります。</li>
+             <li>あくまで目安です。申し込む前に、寄付先サイトのシミュレーターか住民税決定通知書で確かめてください。</li>
+           </ul>
+         </div>
+       </div>`;
+
+    document.getElementById('tax-year').addEventListener('change', ev => {
+      taxYear = Number(ev.target.value) || thisYear;
+      render();
+    });
+    root.querySelectorAll('[data-cost-cat]').forEach(sel => {
+      sel.addEventListener('change', ev => {
+        const v = ev.target.value;
+        if (v === '') return;                 // 「混在」を選び直しても何もしない
+        commit('/txncost', 'POST',
+          { year: taxYear, category: ev.target.dataset.costCat, costRate: Number(v) },
+          '経費の割合を変えました');
+      });
+    });
+  };
+
   /* ---------- シミュレーション ---------- */
   let simExtra = null;   // 追加返済額（最低返済額に上乗せする分）
 
@@ -2691,7 +3083,12 @@ details.tableview > div { margin-top: 8px; }
                  </optgroup>`
               : `<option value="card:">クレジットカード（翌月引落）</option>`}
           </select>
-          <span class="note" id="t-paynote"></span></div>` : ''}
+          <span class="note" id="t-paynote"></span></div>
+        <div class="field full"><label for="t-cost">経費にする割合</label>
+          <select id="t-cost" name="costRate">
+            ${COST_RATES.map(v => `<option value="${v}">${v === 0 ? '経費にしない' : v + '%'}</option>`).join('')}
+          </select>
+          <span class="note">ふるさと納税の上限を出すときに、事業の売上から差し引きます</span></div>` : ''}
       </div>`,
       onOpen: type === 'expense' ? () => {
         const dateEl = document.getElementById('t-date');
@@ -2721,7 +3118,8 @@ details.tableview > div { margin-top: 8px; }
           category: String(fd.get('category') || 'その他'),
           memo: String(fd.get('memo') || '').trim(),
           payMonth: addMonthKey(monthKey(date), via.offset),
-          cardId: via.cardId
+          cardId: via.cardId,
+          costRate: numOf(fd, 'costRate')
         }, label + 'を追加しました');
       }
     });
@@ -2848,6 +3246,60 @@ details.tableview > div { margin-top: 8px; }
     });
   }
 
+  function taxDialog(year) {
+    const inp = taxInput(year);
+    const auto = inp.auto;
+    // 背の低い端末では .note を畳んで高さを稼ぐ作りなので、
+    // 「空欄なら記録からいくら入るか」はラベル側に書く。注記は補足に留める。
+    const fld = (id, name, label, value, note) =>
+      `<div class="field"><label for="${id}">${label}</label>
+         <input type="number" id="${id}" name="${name}" min="0" step="1" inputmode="numeric"
+                value="${value > 0 ? Math.round(value) : ''}" placeholder="0">
+         ${note ? `<span class="note">${note}</span>` : ''}</div>`;
+    const auf = (id, name, label, value, fallback) =>
+      fld(id, name, `${label}<span style="color:var(--ink-3);font-weight:400">（空欄で ${yen(fallback)}）</span>`,
+          value, '記録から集計した額です');
+
+    openDialog({
+      title: year + '年の申告内容',
+      lede: '空欄のままにすると、記録から集計した数字を使います。',
+      ok: '保存',
+      body: `<div class="form-grid">
+        ${fld('x-sal', 'salary', '給与の年収（額面）', inp.salary,
+              '源泉徴収票の「支払金額」。手取りではありません')}
+        ${auf('x-soc', 'social', '社会保険料控除', inp.saved.social, auto.social)}
+        ${auf('x-biz', 'bizIncome', '事業・副業の売上', inp.saved.bizIncome, auto.bizIncome)}
+        ${auf('x-cost', 'bizCost', '経費', inp.saved.bizCost, auto.bizCost)}
+        <div class="field full"><label for="x-levy">住民税の所得割額</label>
+          <input type="number" id="x-levy" name="levy" min="0" step="1" inputmode="numeric"
+                 value="${inp.levy > 0 ? Math.round(inp.levy) : ''}" placeholder="決定通知書に載っている額">
+          <span class="note">入れると上の項目より優先され、一番正確になります</span></div>
+        <details class="tableview full"><summary>その他の控除</summary>
+          <div class="form-grid" style="margin-top:10px">
+            ${fld('x-blue', 'blue', '青色申告特別控除', inp.blue, '青色申告なら 10 / 55 / 65万円')}
+            ${fld('x-life', 'lifeIns', '生命保険料控除', inp.lifeIns, '最大12万円')}
+            ${fld('x-ide', 'ideco', 'iDeCo・小規模企業共済', inp.ideco, '掛金の全額')}
+            ${fld('x-med', 'medical', '医療費控除', inp.medical, '10万円を超えた分')}
+            ${fld('x-fam', 'family', '配偶者・扶養の控除', inp.family, '合計額')}
+            ${fld('x-oth', 'otherDed', 'その他の所得控除', inp.otherDed, '寡婦・障害者控除など')}
+          </div>
+        </details>
+      </div>`,
+      onOpen: () => {
+        // 中に入力済みの数字があるなら、隠したままでは気づけない
+        const d = document.querySelector('#dlgBody details');
+        if (d && ['blue', 'lifeIns', 'ideco', 'medical', 'family', 'otherDed']
+              .some(k => inp[k] > 0)) d.open = true;
+      },
+      onOk: fd => {
+        const body = { year };
+        ['salary', 'social', 'bizIncome', 'bizCost', 'blue', 'lifeIns', 'ideco',
+         'medical', 'family', 'otherDed', 'levy'].forEach(k => { body[k] = numOf(fd, k); });
+        commit('/tax', 'POST', body, year + '年の内容を保存しました');
+      }
+    });
+  }
+
   function goalsDialog() {
     const g = state.goals;
     openDialog({
@@ -2959,6 +3411,7 @@ details.tableview > div { margin-top: 8px; }
       case 'card-bill':  cardBillDialog(id); break;
       case 'borrow':     borrowDialog(id); break;
       case 'edit-goals': goalsDialog(); break;
+      case 'edit-tax':   taxDialog(taxYear); break;
       case 'export':     exportData(); break;
       case 'copy':       copyData(); break;
       case 'backup':     makeBackup(); break;

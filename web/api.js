@@ -22,7 +22,8 @@ const markLoaded = () => { loadedFromSheet = true; };
 
 /** 状態に足りない一覧を空で補う。読み込み・取り込み・控えの復元で使う。 */
 function fillState(st) {
-  const base = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [] };
+  const base = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+                 fixed: [], tax: [] };
   const out = Object.assign({}, base, st || {});
   Object.keys(base).forEach(k => { out[k] = list(out, k); });
   out.goals = Object.assign(
@@ -52,6 +53,7 @@ function derive(raw) {
     cardBills: st.cardBills.slice(),
     borrows: st.borrows.slice(),
     fixed: st.fixed.slice(),
+    tax: st.tax.slice().sort((a, b) => toNum(b.year) - toNum(a.year)),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -66,6 +68,13 @@ const findDebt = id => mem.debts.find(d => d.id === id);
  * 借入の現在の状態を、起点から返済を**日付順に**再生して組み立て直す。
  * 入力した順ではなく日付の順で計算するので、あとから過去の返済を足しても結果は変わらない。
  */
+/** 整数に丸めて範囲に収める。範囲外や数字でないものは 0 にする。 */
+function clampInt(v, lo, hi) {
+  const n = Math.round(toNum(v));
+  if (!Number.isFinite(n) || n < lo || n > hi) return 0;
+  return n;
+}
+
 /** 毎月何日か。0 は未設定。31 を超える指定は月末に丸める。 */
 function dayOfMonth(v) {
   const d = Math.round(toNum(v));
@@ -217,7 +226,9 @@ const MUT = {
       memo: strOf(b.memo, 60),
       // 収入は受け取った月がそのまま現金の動き。引落月を選べるのは支出だけ。
       payMonth: type === 'income' ? monthOf(date) : payMonthFor(b, date),
-      cardId: mem.cards.some(c => c.id === cid) ? cid : ''
+      cardId: mem.cards.some(c => c.id === cid) ? cid : '',
+      // 経費は支出だけの概念。収入に付いていても無視する。
+      costRate: type === 'income' ? 0 : clampInt(b.costRate, 0, 100)
     });
   },
 
@@ -261,6 +272,44 @@ const MUT = {
 
   deleteTxn(id) { mem.txns = mem.txns.filter(t => t.id !== id); },
 
+  setTax(b) {
+    const year = clampInt(b.year, 2000, 2200);
+    if (!year) throw new Refused('年を指定してください');
+    const n = k => Math.max(0, toNum(b[k]));
+    const row = { year,
+      salary: n('salary'), bizIncome: n('bizIncome'), bizCost: n('bizCost'),
+      social: n('social'), blue: n('blue'), lifeIns: n('lifeIns'), ideco: n('ideco'),
+      medical: n('medical'), family: n('family'), otherDed: n('otherDed'),
+      levy: n('levy'), memo: strOf(b.memo, 60) };
+    const i = mem.tax.findIndex(t => toNum(t.year) === year);
+    if (i >= 0) mem.tax[i] = row; else mem.tax.push(row);
+  },
+
+  deleteTax(year) {
+    const y = clampInt(year, 2000, 2200);
+    mem.tax = mem.tax.filter(t => toNum(t.year) !== y);
+  },
+
+  setTxnCost(id, b) {
+    const t = mem.txns.find(x => x.id === id);
+    if (!t) throw new Refused('その記録は見つかりません');
+    if (t.type !== 'expense') throw new Refused('経費にできるのは支出だけです');
+    t.costRate = clampInt(b.costRate, 0, 100);
+  },
+
+  /** ある年のあるカテゴリの支出を、まとめて経費にする。 */
+  setTxnCostBulk(b) {
+    const year = clampInt(b.year, 2000, 2200);
+    if (!year) throw new Refused('年を指定してください');
+    const category = strOf(b.category, 30);
+    if (!category) throw new Refused('カテゴリを指定してください');
+    const rate = clampInt(b.costRate, 0, 100);
+    mem.txns.forEach(t => {
+      if (t.type === 'expense' && t.category === category &&
+          String(t.date || '').slice(0, 4) === String(year)) t.costRate = rate;
+    });
+  },
+
   setGoals(b) {
     mem.goals = {
       targetDate: dateOrDefault(b.targetDate, ''),
@@ -272,6 +321,7 @@ const MUT = {
 
   wipe() {
     mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
+            tax: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -316,7 +366,8 @@ const MUT = {
         id: strOf(t.id, 40) || newId(), type: ttype, date: tdate, amount,
         category: strOf(t.category, 30) || 'その他', memo: strOf(t.memo, 60),
         payMonth: ttype === 'income' ? monthOf(tdate) : payMonthFor(t, tdate),
-        cardId: cardIds.has(strOf(t.cardId, 40)) ? strOf(t.cardId, 40) : ''
+        cardId: cardIds.has(strOf(t.cardId, 40)) ? strOf(t.cardId, 40) : '',
+        costRate: ttype === 'income' ? 0 : clampInt(t.costRate, 0, 100)
       });
     }
     const repayments = [];
@@ -348,8 +399,18 @@ const MUT = {
                    category: strOf(f.category, 30) || nm, amount,
                    memo: strOf(f.memo, 60), createdAt: dateOrDefault(f.createdAt, nowISO()) });
     }
+    const tax = [];
+    for (const t of (p.tax || [])) {
+      const year = clampInt(t.year, 2000, 2200);
+      if (!year || tax.some(x => x.year === year)) continue;   // 年の壊れた行は捨てる
+      const n = k => Math.max(0, toNum(t[k]));
+      tax.push({ year, salary: n('salary'), bizIncome: n('bizIncome'), bizCost: n('bizCost'),
+                 social: n('social'), blue: n('blue'), lifeIns: n('lifeIns'), ideco: n('ideco'),
+                 medical: n('medical'), family: n('family'), otherDed: n('otherDed'),
+                 levy: n('levy'), memo: strOf(t.memo, 60) });
+    }
     const g = p.goals || {};
-    mem = { debts, cards, cardBills, txns, repayments, borrows, fixed, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, borrows, fixed, tax, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -488,6 +549,14 @@ async function api(path, method, body) {
       break;
     case 'goals':
       if (m === 'PUT')    return save(() => MUT.setGoals(body));
+      break;
+    case 'tax':
+      if (m === 'POST')   return save(() => MUT.setTax(body));
+      if (m === 'DELETE') return save(() => MUT.deleteTax(id));
+      break;
+    case 'txncost':
+      if (m === 'PUT')    return save(() => MUT.setTxnCost(id, body));
+      if (m === 'POST')   return save(() => MUT.setTxnCostBulk(body));
       break;
     case 'import':
       if (m === 'POST')   return save(() => MUT.importState(body));

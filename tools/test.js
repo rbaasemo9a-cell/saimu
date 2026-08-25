@@ -463,6 +463,80 @@ ok('不正な日付は空に、負の金額は0に丸められる',
   db.wipe();
 }
 
+
+// ふるさと納税の年の内容と、支出の経費率
+{
+  db.wipe();
+  db.setTax({ year: 2026, salary: 3000000, bizCost: 250000, lifeIns: 40000, levy: 171500 });
+  const t = db.getState().tax[0];
+  ok('年の内容を保存できる', t && t.year === 2026 && t.salary === 3000000, JSON.stringify(t));
+  ok('入れなかった項目は0になる', t.ideco === 0 && t.medical === 0);
+
+  db.setTax({ year: 2026, salary: 4000000 });
+  ok('同じ年に入れ直すと上書きされる（増えない）',
+    db.getState().tax.length === 1 && db.getState().tax[0].salary === 4000000);
+  ok('入れ直したら他の項目も消える（丸ごと差し替え）', db.getState().tax[0].lifeIns === 0);
+
+  db.setTax({ year: 2025, salary: 2000000 });
+  ok('年ごとに別で持てる', db.getState().tax.length === 2);
+  ok('新しい年から順に返す', db.getState().tax[0].year === 2026);
+
+  let threw = 0;
+  try { db.setTax({ year: 0 }); } catch (e) { threw++; }
+  try { db.setTax({ year: 1800 }); } catch (e) { threw++; }
+  try { db.setTax({}); } catch (e) { threw++; }
+  ok('年が無い・範囲外なら受け付けない', threw === 3, String(threw));
+  ok('負の金額は0に丸める',
+    (db.setTax({ year: 2024, salary: -500 }), db.getState().tax.find(x => x.year === 2024).salary === 0));
+
+  db.deleteTax(2024);
+  ok('年を消せる', !db.getState().tax.some(x => x.year === 2024));
+
+  // 経費率
+  db.wipe();
+  const e1 = db.addTxn({ type: 'expense', date: '2026-03-01', amount: 8000, category: '通信', costRate: 50 });
+  const e2 = db.addTxn({ type: 'expense', date: '2026-04-01', amount: 8000, category: '通信' });
+  const e3 = db.addTxn({ type: 'expense', date: '2025-04-01', amount: 8000, category: '通信', costRate: 100 });
+  const i1 = db.addTxn({ type: 'income', date: '2026-03-01', amount: 50000, category: '副業', costRate: 100 });
+  const byId = () => Object.fromEntries(db.getState().txns.map(t => [t.id, t.costRate]));
+  ok('支出に経費率を持たせられる', byId()[e1] === 50);
+  ok('指定しなければ経費にしない', byId()[e2] === 0);
+  ok('収入には経費率が付かない', byId()[i1] === 0);
+
+  db.setTxnCost(e2, { costRate: 100 });
+  ok('あとから経費率を変えられる', byId()[e2] === 100);
+  db.setTxnCost(e2, { costRate: 999 });
+  ok('範囲外の割合は0に倒す', byId()[e2] === 0);
+
+  let bad = 0;
+  try { db.setTxnCost(i1, { costRate: 50 }); } catch (e) { bad++; }
+  try { db.setTxnCost('ない', { costRate: 50 }); } catch (e) { bad++; }
+  ok('収入や存在しない記録は経費にできない', bad === 2, String(bad));
+
+  const n = db.setTxnCostBulk({ year: 2026, category: '通信', costRate: 25 });
+  ok('カテゴリごとにまとめて設定できる', n === 2, String(n));
+  ok('まとめて設定した年だけ変わる',
+    byId()[e1] === 25 && byId()[e2] === 25 && byId()[e3] === 100);
+
+  let bulkBad = 0;
+  try { db.setTxnCostBulk({ category: '通信', costRate: 25 }); } catch (e) { bulkBad++; }
+  try { db.setTxnCostBulk({ year: 2026, costRate: 25 }); } catch (e) { bulkBad++; }
+  ok('年やカテゴリが無ければ受け付けない', bulkBad === 2, String(bulkBad));
+
+  // バックアップの往復
+  db.setTax({ year: 2026, salary: 3000000, levy: 171500 });
+  const snap = db.getState();
+  db.importState(snap);
+  const back = db.getState();
+  ok('書き出して読み戻しても年の内容が残る',
+    back.tax.length === 1 && back.tax[0].levy === 171500, JSON.stringify(back.tax));
+  ok('書き出して読み戻しても経費率が残る',
+    back.txns.filter(t => t.costRate === 25).length === 2);
+
+  db.wipe();
+  ok('全消しで年の内容も消える', db.getState().tax.length === 0);
+}
+
 // バックアップ
 {
   const r = db.backup();
@@ -917,6 +991,157 @@ state.debts = [
 {
   const r = simulate(25000, 'avalanche');
   ok('予算 < 最低返済額合計 でも無限ループしない', r.months.length > 0 && r.months.length <= MAXM);
+}
+
+
+/* ==========================================================
+   ふるさと納税
+   ========================================================== */
+console.log('\n-- ふるさと納税 --');
+{
+  const code = [grab('TAX', 'const'), grab('taxPick', 'const'), grab('floor1000', 'const'),
+                grab('salaryIncome'), grab('adjustCredit'), grab('furusato'),
+                grab('TAX_BIZ_IN', 'const'), grab('TAX_CUSTODY', 'const'),
+                grab('TAX_SOCIAL', 'const'), grab('TAX_DONATE', 'const'),
+                grab('COST_RATES', 'const'),
+                grab('rows', 'const'), grab('taxAuto'), grab('taxInput'),
+                grab('costByCategory')].join('\n');
+  const fn = new Function('state', code +
+    '\nreturn { furusato, salaryIncome, adjustCredit, taxAuto, taxInput, costByCategory, TAX, COST_RATES };');
+  const box = {};
+  const load = st => Object.assign(box, fn(st));
+  load({ txns: [], tax: [] });
+
+  /* --- 総務省が出している目安表と突き合わせる --- */
+  // 「全額控除されるふるさと納税額の目安」給与収入・独身または共働き。
+  // 表は社会保険料を給与収入の約14.4%として計算している。
+  const table = [[3000000, 28000], [4000000, 42000], [5000000, 61000],
+                 [6000000, 77000], [7000000, 108000], [8000000, 129000]];
+  for (const [rev, ref] of table) {
+    const got = box.furusato({ salary: rev, social: Math.round(rev * 0.144) }).limit;
+    // 表の社会保険料は概算なので、5%以内なら式は合っているとみなす
+    ok('目安表と一致（年収' + (rev / 10000) + '万・独身）',
+      Math.abs(got - ref) <= ref * 0.05, got + ' に対し目安 ' + ref);
+  }
+
+  /* --- 各段の計算 --- */
+  ok('給与所得控除は最低65万（令和7年改正）', box.salaryIncome(1000000) === 350000,
+    String(box.salaryIncome(1000000)));
+  ok('給与所得控除は195万で頭打ち', box.salaryIncome(10000000) === 8050000,
+    String(box.salaryIncome(10000000)));
+  ok('給与が控除以下なら給与所得は0', box.salaryIncome(500000) === 0);
+  ok('調整控除は課税所得200万以下なら2,500円', box.adjustCredit(1500000) === 2500);
+  ok('調整控除は課税所得200万超でも2,500円を下回らない', box.adjustCredit(5000000) === 2500);
+  ok('調整控除は課税所得0なら0', box.adjustCredit(0) === 0);
+
+  {
+    const r = box.furusato({ salary: 4000000, social: 576000 });
+    ok('給与所得 = 額面 − 給与所得控除', r.salaryPart === 2760000, String(r.salaryPart));
+    ok('課税所得は千円未満切り捨て', r.taxableI % 1000 === 0 && r.taxableR % 1000 === 0);
+    ok('住民税の基礎控除は所得税より少ない', r.basicR < r.basicI, r.basicR + ' < ' + r.basicI);
+    ok('所得割額 = 住民税の課税所得×10% − 調整控除',
+      near(r.levy, r.taxableR * 0.1 - r.adjust), String(r.levy));
+  }
+
+  /* --- 経費が上限に効く --- */
+  {
+    const base = { salary: 3000000, bizIncome: 900000, social: 500000 };
+    const withCost = box.furusato(Object.assign({}, base, { bizCost: 250000 }));
+    const without = box.furusato(base);
+    ok('経費を入れると事業所得が減る', withCost.bizPart === without.bizPart - 250000);
+    ok('経費を入れると上限も下がる', withCost.limit < without.limit,
+      without.limit + ' → ' + withCost.limit);
+    ok('経費が売上を超えても事業所得はマイナスにならない',
+      box.furusato({ bizIncome: 100000, bizCost: 500000 }).bizPart === 0);
+    ok('青色申告特別控除も事業所得から引く',
+      box.furusato(Object.assign({}, base, { blue: 650000 })).bizPart ===
+      without.bizPart - 650000);
+  }
+
+  /* --- 控除が上限に効く --- */
+  {
+    const base = { salary: 5000000, social: 720000 };
+    const more = box.furusato(Object.assign({}, base, { ideco: 276000 }));
+    ok('iDeCo を入れると上限が下がる', more.limit < box.furusato(base).limit);
+    ok('控除は種類が違っても合計として効く',
+      box.furusato(Object.assign({}, base, { medical: 100000 })).taxableI ===
+      box.furusato(Object.assign({}, base, { family: 100000 })).taxableI);
+  }
+
+  /* --- 端の条件 --- */
+  ok('所得ゼロなら所得割も上限も0',
+    box.furusato({}).limit === 0 && box.furusato({}).noLevy === true);
+  ok('所得が控除に満たないなら上限0', box.furusato({ salary: 900000, social: 130000 }).limit === 0);
+  ok('上限は千円単位に切り捨てる', box.furusato({ salary: 4000000, social: 576000 }).limit % 1000 === 0);
+  ok('安全な目安は上限の9割以下',
+    box.furusato({ salary: 4000000, social: 576000 }).safe <=
+    box.furusato({ salary: 4000000, social: 576000 }).limit * 0.9 + 1);
+  ok('通知書の所得割額があればそちらを使う',
+    box.furusato({ salary: 4000000, social: 576000, levy: 300000 }).fromLevy === true);
+  ok('通知書の所得割額が大きいほど上限も大きい',
+    box.furusato({ levy: 300000 }).limit > box.furusato({ levy: 100000 }).limit);
+  ok('寄付できる額は総所得の30%で頭打ち',
+    box.furusato({ salary: 1100000, levy: 5000000 }).capped === true);
+
+  /* --- 記録からの集計 --- */
+  {
+    const st = { tax: [], txns: [
+      { id: '1', type: 'income',  date: '2026-03-01', amount: 100000, category: '配達（現金回収）', costRate: 0 },
+      { id: '2', type: 'income',  date: '2026-03-08', amount: 60000,  category: '副業', costRate: 0 },
+      { id: '3', type: 'expense', date: '2026-03-10', amount: 70000,  category: '預かり金の返却', costRate: 0 },
+      { id: '4', type: 'expense', date: '2026-03-12', amount: 8000,   category: '通信', costRate: 50 },
+      { id: '5', type: 'expense', date: '2026-03-15', amount: 20000,  category: '交通', costRate: 100 },
+      { id: '6', type: 'expense', date: '2026-03-20', amount: 30000,  category: '社会保険', costRate: 0 },
+      { id: '7', type: 'expense', date: '2026-04-01', amount: 12000,  category: 'ふるさと納税', costRate: 0 },
+      { id: '8', type: 'income',  date: '2025-03-01', amount: 500000, category: '副業', costRate: 0 },
+      { id: '9', type: 'expense', date: '2026-03-25', amount: 50000,  category: '食費', costRate: 0 }
+    ] };
+    load(st);
+    const a = box.taxAuto(2026);
+    ok('預かり金の返却を売上から引く', a.bizIncome === 100000 + 60000 - 70000, String(a.bizIncome));
+    ok('経費は割合を掛けて合計する', a.bizCost === 8000 * 0.5 + 20000, String(a.bizCost));
+    ok('社会保険はカテゴリから拾う', a.social === 30000);
+    ok('ふるさと納税の寄付済み額を拾う', a.donated === 12000);
+    ok('別の年の記録は混ぜない', box.taxAuto(2025).bizIncome === 500000);
+    ok('記録のある月数を数える', a.months === 2, String(a.months));
+
+    ok('手入力が無ければ記録の数字を使う', box.taxInput(2026).bizIncome === a.bizIncome);
+    ok('給与は記録から自動で入れない（記録は手取りのため）', box.taxInput(2026).salary === 0);
+
+    load({ txns: st.txns, tax: [{ year: 2026, salary: 3000000, bizIncome: 999999,
+      bizCost: 0, social: 0, blue: 0, lifeIns: 0, ideco: 0, medical: 0, family: 0,
+      otherDed: 0, levy: 0, memo: '' }] });
+    const i2 = box.taxInput(2026);
+    ok('手入力があれば記録より優先する', i2.bizIncome === 999999);
+    ok('手入力が0の項目は記録に戻る', i2.bizCost === 24000, String(i2.bizCost));
+    ok('手入力かどうかを見分けられる',
+      i2.isTyped('bizIncome') === true && i2.isTyped('bizCost') === false);
+
+    load(st);
+    const cats = box.costByCategory(2026);
+    const byName = Object.fromEntries(cats.map(c => [c.category, c]));
+    ok('預かり金の返却は経費の一覧に出さない', !byName['預かり金の返却']);
+    ok('カテゴリごとに計上額を出す', byName['通信'].counted === 4000);
+    ok('割合が揃っていればその割合を返す', byName['交通'].rate === 100);
+    ok('経費にしていないカテゴリも一覧に出す', byName['食費'] && byName['食費'].rate === 0);
+    ok('計上額の大きい順に並ぶ', cats[0].counted >= cats[cats.length - 1].counted);
+
+    load({ tax: [], txns: st.txns.concat([
+      { id: '10', type: 'expense', date: '2026-05-01', amount: 8000, category: '通信', costRate: 100 }
+    ]) });
+    ok('同じカテゴリで割合が違えば混在とする',
+      box.costByCategory(2026).find(c => c.category === '通信').rate === null);
+  }
+
+  ok('経費の割合の選択肢は0%から100%まで',
+    box.COST_RATES[0] === 0 && box.COST_RATES[box.COST_RATES.length - 1] === 100);
+
+  /* --- 画面と保存層のつながり --- */
+  ok('ふるさと納税タブがある', html.includes('data-view="tax"'));
+  ok('ふるさと納税の画面の器がある', html.includes('id="view-tax"'));
+  ok('支出カテゴリにふるさと納税がある', src.includes("'ふるさと納税'"));
+  ok('経費の一括設定が /txncost を呼ぶ', src.includes("commit('/txncost'"));
+  ok('年の内容が /tax に保存される', src.includes("commit('/tax'"));
 }
 
 /* ---------- 後片付け ---------- */
