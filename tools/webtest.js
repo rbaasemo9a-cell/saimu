@@ -77,8 +77,7 @@ ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,160}
   ok('開いたらまず控えを出す',
     app.includes('function showCached') && app.includes('cached = showCached();'));
   ok('控えの復元で落ちても起動を止めない',
-    /try \{\s*
-?\s*cached = showCached\(\);/.test(app) || app.includes('cached = null;'));
+    app.includes('cached = showCached();') && app.includes('cached = null;'));
   ok('読み込み前の書き込みを拒否する',
     app.includes('if (!loadedFromSheet)') && app.includes('markLoaded()'));
   ok('控えがあればログイン画面で止めない',
