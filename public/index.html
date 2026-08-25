@@ -1058,6 +1058,13 @@ details.tableview > div { margin-top: 8px; }
     return out;
   }
 
+  /** 今月がどこまで進んだか。月の途中の実績を読むときの物差しにする。 */
+  function monthProgress() {
+    const t = new Date();
+    const days = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+    return { day: t.getDate(), days, pct: (t.getDate() / days) * 100 };
+  }
+
   /**
    * 毎月の固定収支から、目標返済額に届くかを見る。
    *   返済に回せる額 = 固定収入 − 固定支出
@@ -1962,6 +1969,7 @@ details.tableview > div { margin-top: 8px; }
     const mNet = mSum.net;
     const hold = committedNext(thisMonth());
     const plan = fixedPlan(g.monthlyRepay || 0);
+    const mp = monthProgress();
     const mgoal = g.monthlyRepay || 0;
     const mprog = mgoal > 0 ? (mrepay / mgoal) * 100 : 0;
 
@@ -2056,6 +2064,40 @@ details.tableview > div { margin-top: 8px; }
            </div>
            <p class="note" style="margin-top:10px">ここに入れた金額は計画のための数字です。実際の収支の記録にはなりません。<br>
              返済の行は借入の登録から自動で入ります。<b>固定の支出に返済を手で足さないでください</b>（二重に数えられます）。</p>
+         </div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>今月の実績と計画</h2>
+           <span class="hint">${mp.day}日目 / ${mp.days}日（${pct(mp.pct)}経過）</span></div>
+         <div class="panel-body">
+           <div class="table-wrap"><table class="ledger">
+             <thead><tr><th>　</th><th class="r">計画</th><th class="r">実績</th><th class="r">差</th></tr></thead>
+             <tbody>${[
+               ['収入', plan.income, mSum.income, 'more'],
+               ['支出（引落）', plan.expense, mSum.expensePaid, 'less'],
+               ['返済', plan.repay, mSum.repay, 'more']
+             ].map(([label, want, got, good]) => {
+               const diff = got - want;
+               const bad = good === 'more' ? diff < 0 : diff > 0;
+               return `<tr>
+                 <td>${label}</td>
+                 <td class="r" style="color:var(--ink-3)">${plan.has ? yen(want) : '—'}</td>
+                 <td class="r">${yen(got)}</td>
+                 <td class="r ${plan.has && bad ? 'amt-neg' : 'amt-pos'}">${plan.has
+                   ? (diff >= 0 ? '+' : '') + yen(diff) : '—'}</td>
+               </tr>`;
+             }).join('')}</tbody>
+             <tfoot><tr>
+               <td>残り</td>
+               <td class="r" style="color:var(--ink-3)">${plan.has ? yen(plan.left) : '—'}</td>
+               <td class="r ${mSum.net < 0 ? 'amt-neg' : 'amt-pos'}">${yen(mSum.net)}</td>
+               <td class="r">${plan.has ? (mSum.net - plan.left >= 0 ? '+' : '') + yen(mSum.net - plan.left) : '—'}</td>
+             </tr></tfoot>
+           </table></div>
+           ${!plan.has
+             ? `<p class="note" style="margin-top:10px">固定収支を登録すると、計画と並べて見られます。</p>`
+             : `<p class="note" style="margin-top:10px">月の途中なので、実績が計画に届いていないのは自然です。目安として、いまは月の ${pct(mp.pct)} が過ぎています。</p>`}
          </div>
        </div>
 

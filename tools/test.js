@@ -847,6 +847,18 @@ console.log('\n現金回収と取り置き');
     String(F2.fixedPlan(50000).left));
 }
 
+/* ---------- 今月の進み具合（実績を読むときの物差し） ---------- */
+{
+  const monthProgress = eval('(' + grab('monthProgress') + ')');
+  const p = monthProgress();
+  const t = new Date();
+  const days = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate();
+  ok('今日の日と月の日数を返す', p.day === t.getDate() && p.days === days,
+    `${p.day}/${p.days} 期待 ${t.getDate()}/${days}`);
+  ok('経過割合は 0〜100 に収まる', p.pct > 0 && p.pct <= 100, String(p.pct));
+  ok('月末なら100%', (p.day === p.days) === (Math.round(p.pct) === 100) || p.day !== p.days);
+}
+
 /* ---------- 計画は雪だるま式に固定 ---------- */
 {
   ok('計画に使う方式が雪だるま式で定義されている', src.includes("const PLAN = 'snowball';"));
