@@ -142,6 +142,11 @@ const render = url => {
       if (!p) { ok(`${w}px ${v}`, false, '計測できませんでした'); continue; }
       ok(`${w}px ${v} — 横スクロールが出ない`, p.overflow <= 1,
         `はみ出し ${p.overflow}px / ${p.wide.join(', ')}`);
+      // 閉じたダイアログが画面に出ていないこと。display を #dlg に直接書くと
+      // ブラウザ標準の dialog:not([open]) を打ち消し、各画面の下に
+      // 「保存・キャンセル」が出たままになる。
+      ok(`${w}px ${v} — 閉じたダイアログが画面に出ていない`,
+        !p.dlgOpen && !p.dlgShown, `open=${p.dlgOpen} 表示=${p.dlgShown}`);
       if (w === WIDTHS[0]) {
         ok(`${w}px ${v} — 指で押せない部品が無い`, p.tiny === 0, `${p.tiny} 個が36px未満`);
       }

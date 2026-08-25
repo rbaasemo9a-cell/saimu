@@ -438,10 +438,12 @@ input[type="range"] { width: 100%; accent-color: var(--accent); }
     margin: auto auto 0; width: 100%; max-width: none;
     border-radius: 16px 16px 0 0;
     max-height: 96vh; max-height: 96dvh; padding-bottom: env(safe-area-inset-bottom);
-    /* 見出しと操作列を先に確保し、残り全部を本文に配る。
-       固定値で引くと端末によって本文が足りず、入力欄がスクロールに隠れる。 */
-    display: flex; flex-direction: column;
   }
+  /* display は開いているときだけ指定する。#dlg に直接書くと、ブラウザ標準の
+     dialog:not([open]) { display: none } を打ち消し、閉じたダイアログの
+     「保存・キャンセル」が各画面の下に出たままになる。
+     見出しと操作列を先に確保し、残り全部を本文に配る。 */
+  #dlg[open] { display: flex; flex-direction: column; }
   /* #dlg の直接の子は <form> で、見出し・本文・操作列はその中にある。
      form にも flex を掛けないと、本文が縮まず操作列が枠の外へ出る。 */
   #dlgForm { display: flex; flex-direction: column; min-height: 0; max-height: inherit; }
