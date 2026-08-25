@@ -480,8 +480,14 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'),
 const src = html.match(/<script>([\s\S]*?)<\/script>/)[1];
   /** 画面のコードから1つの定義を切り出す。kind='const' なら const 宣言を拾う。 */
   function grab(name, kind) {
-    const head = kind === 'const' ? 'const ' + name + ' = ' : 'function ' + name + '(';
-    const i = src.indexOf(head);
+    // 位置揃えで空白が複数入っていることがあるので、空白をまたいで探す
+    const head = kind === 'const' ? 'const ' + name : 'function ' + name;
+    let i = -1;
+    for (let k = src.indexOf(head); k >= 0; k = src.indexOf(head, k + 1)) {
+      const rest = src.slice(k + head.length);
+      const after = rest.replace(/^[ 	]*/, '');
+      if (kind === 'const' ? after.startsWith('=') : after.startsWith('(')) { i = k; break; }
+    }
     if (i < 0) throw new Error('見つかりません: ' + name);
     let depth = 0, started = false;
     for (let j = i; j < src.length; j++) {
@@ -497,7 +503,8 @@ const MAXM = 600;
 const PLAN = 'snowball';        // 画面側と同じ、計画に使う返済方式
 const DAY_BASIS = 365;
 let state = { debts: [] };
-const totalBalance = () => state.debts.reduce((s, d) => s + Math.max(0, d.balance), 0);
+const rows = name => (Array.isArray(state[name]) ? state[name] : []);
+const totalBalance = () => rows('debts').reduce((s, d) => s + Math.max(0, d.balance), 0);
 const addMonthsExact = eval('(' + grab('addMonthsExact') + ')');
 const daysApart      = eval('(' + grab('daysApart') + ')');
 const interestFor    = eval('(' + grab('interestFor') + ')');
@@ -765,7 +772,7 @@ console.log('\n現金回収と取り置き');
   const set = fixed => { state = { fixed }; F.set(state); };
   // fixedPlan は rows() 経由で state を読むので、F の中の state を使う
   const F2 = new Function([
-    'let state;', grab('rows', 'const'), grab('fixedPlan'),
+    'let state;', grab('rows', 'const'), grab('totalMinPayment', 'const'), grab('fixedPlan'),
     'return { set: s => { state = s; }, fixedPlan };'
   ].join(String.fromCharCode(10)))();
 
@@ -777,11 +784,52 @@ console.log('\n現金回収と取り置き');
     { type: 'expense', category: '通信', amount: 11000 }
   ] });
 
+  // 毎月の返済も固定で出ていく。目標があればそれ、無ければ最低返済額の合計。
+  F2.set({ fixed: [
+    { type: 'income', name: '給与', amount: 280000 },
+    { type: 'expense', name: '家賃', amount: 82000 },
+    { type: 'expense', name: '保険', amount: 45000 },
+    { type: 'expense', name: '食費', amount: 50000 },
+    { type: 'expense', name: '通信', amount: 3278 }
+  ], debts: [
+    { balance: 1200000, minPayment: 30000 },
+    { balance: 800000, minPayment: 32000 },
+    { balance: 260000, minPayment: 15000 }
+  ] });
+  {
+    const noGoal = F2.fixedPlan(0);
+    ok('目標が無ければ最低返済額の合計を返済とみなす',
+      noGoal.repay === 77000 && noGoal.fromGoal === false, String(noGoal.repay));
+    ok('残りは 収入 − 支出 − 返済', noGoal.left === 22722, String(noGoal.left));
+    ok('足りていれば不足はゼロ', noGoal.need === 0);
+
+    const goal = F2.fixedPlan(120000);
+    ok('目標があればそちらを返済とみなす',
+      goal.repay === 120000 && goal.fromGoal === true, String(goal.repay));
+    ok('返済を含めて足りなければ不足を出す',
+      goal.left === -20278 && goal.need === 20278, `${goal.left}/${goal.need}`);
+    ok('最低返済額も併せて持つ', goal.sumMin === 77000, String(goal.sumMin));
+
+    // 完済した借入は最低返済額に数えない
+    F2.set({ fixed: [], debts: [{ balance: 0, minPayment: 30000 }, { balance: 100, minPayment: 5000 }] });
+    ok('残高ゼロの借入は返済に数えない', F2.fixedPlan(0).repay === 5000, String(F2.fixedPlan(0).repay));
+
+    F2.set({});
+    ok('借入も固定収支も無ければ返済はゼロ', F2.fixedPlan(0).repay === 0);
+  }
+
+  F2.set({ fixed: [
+    { type: 'income', category: '給与', amount: 280000 },
+    { type: 'expense', category: '住居', amount: 82000 },
+    { type: 'expense', category: '社会保険', amount: 45000 },
+    { type: 'expense', category: '食費', amount: 50000 },
+    { type: 'expense', category: '通信', amount: 11000 }
+  ] });
   const p1 = F2.fixedPlan(77000);
   ok('固定収入と固定支出を集計する',
     p1.income === 280000 && p1.expense === 188000, `${p1.income}/${p1.expense}`);
-  ok('返済に回せる額は 固定収入 − 固定支出', p1.left === 92000, String(p1.left));
-  ok('目標に届いていれば不足はゼロ', p1.need === 0, String(p1.need));
+  ok('残りは 収入 − 支出 − 返済（借入なしなら返済0）',
+    p1.left === 92000 - 77000, String(p1.left));
 
   const p2 = F2.fixedPlan(120000);
   ok('届かなければ不足額を出す', p2.need === 28000, String(p2.need));
@@ -794,7 +842,9 @@ console.log('\n現金回収と取り置き');
   ok('未登録でも落ちない', F2.fixedPlan(100000).need === 100000);
 
   F2.set({});
-  ok('fixed が無い保存先でも落ちない', F2.fixedPlan(50000).left === 0);
+  // 返済も引くので、収支が空なら残りは目標分だけマイナスになる
+  ok('fixed が無い保存先でも落ちない', F2.fixedPlan(50000).left === -50000,
+    String(F2.fixedPlan(50000).left));
 }
 
 /* ---------- 計画は雪だるま式に固定 ---------- */

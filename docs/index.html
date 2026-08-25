@@ -2061,11 +2061,11 @@ window.saimuSignOut = signOutAndReset;
     return interestFor(d.principal, d.rate, daysApart(t, addMonthsExact(t, 1)));
   }
 
-  const totalBalance     = () => state.debts.reduce((s, d) => s + Math.max(0, d.balance), 0);
-  const totalPrincipal   = () => state.debts.reduce((s, d) => s + Math.max(0, d.principal), 0);
-  const totalInterestDue = () => state.debts.reduce((s, d) => s + Math.max(0, d.interestToday), 0);
-  const totalInitial     = () => state.debts.reduce((s, d) => s + Math.max(d.initial || 0, d.balance), 0);
-  const totalMinPayment  = () => state.debts.reduce((s, d) => (d.balance > 0 ? s + d.minPayment : s), 0);
+  const totalBalance     = () => rows('debts').reduce((s, d) => s + Math.max(0, d.balance), 0);
+  const totalPrincipal   = () => rows('debts').reduce((s, d) => s + Math.max(0, d.principal), 0);
+  const totalInterestDue = () => rows('debts').reduce((s, d) => s + Math.max(0, d.interestToday), 0);
+  const totalInitial     = () => rows('debts').reduce((s, d) => s + Math.max(d.initial || 0, d.balance), 0);
+  const totalMinPayment  = () => rows('debts').reduce((s, d) => (d.balance > 0 ? s + d.minPayment : s), 0);
 
   /**
    * 毎月の返済をシミュレートする。
@@ -2076,7 +2076,7 @@ window.saimuSignOut = signOutAndReset;
    * 返り値の payoffMonths が null なら期間内に完済しない。
    */
   function simulate(budget, strategy) {
-    const ds = state.debts
+    const ds = rows('debts')
       .filter(d => d.balance > 0.5)
       .map(d => ({ id: d.id, name: d.name, prin: Math.max(0, d.principal),
                    int: Math.max(0, d.interestToday), rate: d.rate, min: d.minPayment }));
@@ -2285,9 +2285,14 @@ window.saimuSignOut = signOutAndReset;
       .reduce((a, f) => a + f.amount, 0);
     const expense = rows('fixed').filter(f => f.type === 'expense')
       .reduce((a, f) => a + f.amount, 0);
-    const left = income - expense;
-    return { income, expense, left,
-             need: Math.max(0, (goalRepay || 0) - left),
+    // 毎月の返済も固定で出ていくお金。目標があればそれ、無ければ最低返済額の合計。
+    const sumMin = totalMinPayment();
+    const repay = goalRepay > 0 ? goalRepay : sumMin;
+    const left = income - expense - repay;
+    return { income, expense, repay, sumMin, left,
+             fromGoal: goalRepay > 0,
+             need: Math.max(0, -left),
+             // 固定収支を1つも登録していないうちは、案内だけ出す
              has: rows('fixed').length > 0 };
   }
 
@@ -3211,21 +3216,25 @@ window.saimuSignOut = signOutAndReset;
          <div class="panel-body">
            ${!plan.has
              ? `<p style="color:var(--ink-3);font-size:13px">毎月決まって入るお金と出るお金を登録すると、目標を達成するために<b>あといくら稼げばよいか</b>、または<b>いくら節約すればよいか</b>を計算します。</p>`
-             : `<div class="grid g-3" style="gap:14px">
+             : `<div class="grid g-4" style="gap:14px">
                   <div class="tile"><span class="tile-label">固定の収入</span>
                     <span class="tile-value pos">${yen(plan.income)}</span></div>
                   <div class="tile"><span class="tile-label">固定の支出</span>
-                    <span class="tile-value">${yen(plan.expense)}</span></div>
-                  <div class="tile"><span class="tile-label">返済に回せる額</span>
-                    <span class="tile-value ${plan.left < 0 ? 'neg' : ''}">${yen(plan.left)}</span>
-                    <span class="tile-delta">固定収入 − 固定支出</span></div>
+                    <span class="tile-value">${yen(plan.expense)}</span>
+                    <span class="tile-delta">生活にかかる分</span></div>
+                  <div class="tile"><span class="tile-label">毎月の返済</span>
+                    <span class="tile-value">${yen(plan.repay)}</span>
+                    <span class="tile-delta">${plan.fromGoal
+                      ? '返済目標（最低返済 ' + compact(plan.sumMin) + ' 込み）'
+                      : '最低返済額の合計'}</span></div>
+                  <div class="tile"><span class="tile-label">残り</span>
+                    <span class="tile-value ${plan.left < 0 ? 'neg' : 'pos'}">${yen(plan.left)}</span>
+                    <span class="tile-delta">収入 − 支出 − 返済</span></div>
                 </div>
-                ${!mgoal
-                  ? `<div class="callout info" style="margin-top:13px">${ICON.info}<div>月々の返済目標を設定すると、不足額を計算します。</div></div>`
-                  : plan.need <= 0
-                  ? `<div class="callout info" style="margin-top:13px">${ICON.ok}<div>固定の収支だけで目標 <b>${yen(mgoal)}</b> に届いています（<b>${yen(plan.left - mgoal)}</b> の余裕）。</div></div>`
+                ${plan.need <= 0
+                  ? `<div class="callout info" style="margin-top:13px">${ICON.ok}<div>いまの固定収支で、毎月 <b>${yen(plan.repay)}</b> の返済を続けられます（<b>${yen(plan.left)}</b> 残ります）。</div></div>`
                   : `<div class="callout warn" style="margin-top:13px">${ICON.warn}<div>
-                       目標 <b>${yen(mgoal)}</b> に対して <b>${yen(plan.need)}</b> 足りません。次のどちらか、または組み合わせで埋めます。</div></div>
+                       毎月 <b>${yen(plan.repay)}</b> を返すには <b>${yen(plan.need)}</b> 足りません。次のどちらか、または組み合わせで埋めます。</div></div>
                      <div class="grid g-2" style="gap:14px;margin-top:13px">
                        <div class="tile"><span class="tile-label">副業などで稼ぐ</span>
                          <span class="tile-value">${yen(plan.need)}</span>
@@ -3235,7 +3244,7 @@ window.saimuSignOut = signOutAndReset;
                          <span class="tile-delta">いまの固定支出の ${pct(plan.expense > 0 ? plan.need / plan.expense * 100 : 0)}</span></div>
                      </div>`}`}
 
-           ${rows('fixed').length ? `<div class="table-wrap" style="margin-top:14px"><table class="ledger">
+           ${(rows('fixed').length || plan.repay > 0) ? `<div class="table-wrap" style="margin-top:14px"><table class="ledger">
                <thead><tr><th>区分</th><th class="r">日</th><th>項目名</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
                <tbody>${rows('fixed').map(f => `<tr>
                  <td>${f.type === 'income'
@@ -3246,12 +3255,23 @@ window.saimuSignOut = signOutAndReset;
                  <td class="r">${yen(f.amount)}</td>
                  <td class="col-memo" style="color:var(--ink-2)">${esc(f.memo || '')}</td>
                  <td class="r"><button class="btn sm" data-act="edit-fixed" data-id="${f.id}">編集</button></td>
-               </tr>`).join('')}</tbody></table></div>` : ''}
+               </tr>`).join('')}
+               ${plan.repay > 0 ? `<tr>
+                 <td><span class="pill flat">支出</span></td>
+                 <td class="r" style="color:var(--ink-2)">—</td>
+                 <td>毎月の返済 <span class="pill warn">借入から自動</span></td>
+                 <td class="r">${yen(plan.repay)}</td>
+                 <td class="col-memo" style="color:var(--ink-2)">${plan.fromGoal
+                   ? '返済目標。最低返済額の合計 ' + yen(plan.sumMin) + ' を含む総額です'
+                   : '最低返済額の合計'}</td>
+                 <td class="r"><button class="btn sm" data-act="edit-goals">目標を編集</button></td>
+               </tr>` : ''}</tbody></table></div>` : ''}
            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
              <button class="btn" data-act="add-fixed-income">${ICON.plus}固定の収入</button>
              <button class="btn" data-act="add-fixed-expense">${ICON.plus}固定の支出</button>
            </div>
-           <p class="note" style="margin-top:10px">ここに入れた金額は計画のための数字です。実際の収支の記録にはなりません。</p>
+           <p class="note" style="margin-top:10px">ここに入れた金額は計画のための数字です。実際の収支の記録にはなりません。<br>
+             返済の行は借入の登録から自動で入ります。<b>固定の支出に返済を手で足さないでください</b>（二重に数えられます）。</p>
          </div>
        </div>
 
@@ -4009,7 +4029,7 @@ window.saimuSignOut = signOutAndReset;
           <input type="date" id="g-date" name="targetDate" value="${esc(g.targetDate || '')}"></div>
         <div class="field"><label for="g-rep">月々の返済目標（円）</label>
           <input type="number" id="g-rep" name="monthlyRepay" min="0" step="1000" value="${g.monthlyRepay || ''}">
-          <span class="note">最低返済額の合計は ${yen(totalMinPayment())}</span></div>
+          <span class="note">最低返済額 ${yen(totalMinPayment())} を含む総額で入れてください</span></div>
         <div class="field"><label for="g-ef">生活防衛資金の目標（円）</label>
           <input type="number" id="g-ef" name="emergency" min="0" step="10000" value="${g.emergency || ''}"></div>
         <div class="field"><label for="g-efc">生活防衛資金の現在額（円）</label>
