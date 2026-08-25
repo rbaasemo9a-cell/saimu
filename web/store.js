@@ -384,7 +384,7 @@ async function readAll() {
   const m = byTable.meta[0] || {};
   revision = toNum(m.revision);
 
-  return {
+  return fillState({
     debts: byTable.debts,
     cards: byTable.cards,
     cardBills: byTable.cardBills,
@@ -398,7 +398,7 @@ async function readAll() {
       emergency: toNum(g.emergency),
       emergencyCurrent: toNum(g.emergencyCurrent)
     }
-  };
+  });
 }
 
 /** 全シートを1回の batchUpdate で置き換える。前回より短くなった分は空行で消す。 */

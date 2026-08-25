@@ -5,8 +5,35 @@
 
 let mem = null;          // スプレッドシートに入っている生の状態
 
+/**
+ * 保存先から取り出した一覧。新しい種類のデータを足したとき、まだそれを持たない
+ * 保存先や端末の控えを開いても落ちないようにする。
+ * ここを直接 st.xxx.slice() と書いて、実際に3度画面を壊した。必ずこれを通す。
+ */
+const list = (st, name) => (Array.isArray(st && st[name]) ? st[name] : []);
+
+/**
+ * スプレッドシートから一度でも正しく読めたか。
+ * 読めていない状態で書き込むと、全シートを空の内容で置き換えてしまう。
+ * 起動時に落ちて mem が空のまま操作された場合に、それが起きる。
+ */
+let loadedFromSheet = false;
+const markLoaded = () => { loadedFromSheet = true; };
+
+/** 状態に足りない一覧を空で補う。読み込み・取り込み・控えの復元で使う。 */
+function fillState(st) {
+  const base = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [] };
+  const out = Object.assign({}, base, st || {});
+  Object.keys(base).forEach(k => { out[k] = list(out, k); });
+  out.goals = Object.assign(
+    { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 },
+    (st && st.goals) || {});
+  return out;
+}
+
 /** 保存値は起算日時点。画面には今日時点の未払利息と残高を渡す。 */
-function derive(st) {
+function derive(raw) {
+  const st = fillState(raw);
   const today = nowISO();
   return {
     debts: st.debts.map(d => {
@@ -57,9 +84,9 @@ function fixedFields(b) {
 function rebuildDebt(d) {
   // 追加借入と返済を1本の時間軸に並べる。同じ日なら借りてから返した順に扱う。
   const events = [];
-  mem.borrows.filter(b => b.debtId === d.id && b.date >= d.originDate)
+  list(mem, 'borrows').filter(b => b.debtId === d.id && b.date >= d.originDate)
     .forEach(b => events.push({ kind: 0, date: b.date, amount: b.amount, ref: b }));
-  mem.repayments.filter(r => r.debtId === d.id && r.date >= d.originDate)
+  list(mem, 'repayments').filter(r => r.debtId === d.id && r.date >= d.originDate)
     .forEach(r => events.push({ kind: 1, date: r.date, amount: r.amount, ref: r }));
   events.sort((a, b) => a.date.localeCompare(b.date) || (a.kind - b.kind) ||
                         String(a.ref.id).localeCompare(String(b.ref.id)));
@@ -410,6 +437,10 @@ async function api(path, method, body) {
 
   // 書き込み。先に他端末の更新を確かめ、変更を適用してから全体を書き戻す。
   const save = async fn => {
+    // 読み込みが済んでいないうちは絶対に書かない。空の内容で全部を上書きしてしまう。
+    if (!loadedFromSheet) {
+      throw new Error('データをまだ読み込めていません。画面を再読み込みしてから、もう一度お試しください。');
+    }
     await assertFresh();
     const before = JSON.stringify(mem);
     try {

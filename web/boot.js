@@ -85,6 +85,7 @@ async function afterSignIn() {
   // 取り直しのポップアップを毎回出してしまう。メール表示のために払う代償ではない。
   await ensureFile();
   mem = await readAll();
+  markLoaded();                       // ここを通るまで書き込みは許さない
   saveCache(mem);                     // 次に開いたときログイン無しで見られるように
   dbStats = await api('/stats');
   adopt(await api('/state'));
@@ -98,7 +99,9 @@ async function afterSignIn() {
 function showCached() {
   const c = loadCache();
   if (!c) return null;
-  mem = c.state;
+  // 前のつくりで保存された控えには、後から足した種類が入っていない。
+  // ここで補ってから使う。補わないと derive で落ちて画面が出ない。
+  mem = fillState(c.state);
   adopt(derive(mem));
   online = false;
   hideGate();
@@ -117,7 +120,12 @@ async function boot() {
 
   // まず手元の控えを出す。残高を見るだけならこれで足りるので、
   // アクセストークンが切れていてもログイン画面で止めない。
-  const cached = showCached();
+  let cached = null;
+  try {
+    cached = showCached();
+  } catch (e) {
+    cached = null;                    // 控えが古い形でも起動は止めない
+  }
   if (!cached) render();
 
   // 期限内の鍵があれば、Google に問い合わせずそのまま最新に合わせる。

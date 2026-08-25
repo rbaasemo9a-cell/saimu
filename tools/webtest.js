@@ -161,6 +161,51 @@ console.log('\n古いシートとの互換');
     /originDate = ISO_DATE\.test\(d\.accruedAt/.test(app));
 }
 
+/*
+ * 新しい種類のデータを足したとき、それを持たない保存先や端末の控えを開いても
+ * 落ちないこと。borrows / fixed を足したときに、これで実際に2度画面を壊した。
+ */
+console.log('\n古い保存先・古い控えとの互換');
+{
+  const L3 = new Function([
+    "const ISO_DATE=/^\d{4}-\d{2}-\d{2}$/;",
+    grab('daysBetweenISO'),
+    'const accrueOn = (p, r, d) => p * (r / 100 / 365) * d;',
+    grab('nowISO', 'const'),
+    grab('list', 'const'),
+    grab('fillState'),
+    grab('derive'),
+    'return { derive, fillState };'
+  ].join(String.fromCharCode(10)))();
+
+  const cases = [
+    ['fixed が無い', { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [] }],
+    ['borrows も無い', { debts: [], txns: [], repayments: [], cards: [], cardBills: [] }],
+    ['debts だけ', { debts: [] }],
+    ['空', {}],
+    ['null', null]
+  ];
+  const broke = cases.filter(([, st]) => {
+    try { L3.derive(st); return false; } catch (e) { return true; }
+  }).map(([n]) => n);
+  ok('種類が欠けた保存先を開いても落ちない', broke.length === 0, broke.join(' | '));
+
+  const filled = L3.fillState({ debts: [] });
+  ok('足りない一覧は空で補われる',
+    ['txns', 'repayments', 'borrows', 'cards', 'cardBills', 'fixed']
+      .every(k => Array.isArray(filled[k])));
+  ok('目標も既定値で補われる', filled.goals && filled.goals.monthlyRepay === 0);
+
+  // 直接 st.xxx.slice() に戻っていないこと（それで3度壊した）
+  ok('一覧の取り出しは list() を通している',
+    !/st\.(txns|repayments|borrows|cards|cardBills|fixed)\.slice\(\)/.test(
+      app.slice(app.indexOf('function derive('), app.indexOf('function derive(') + 900)
+        .replace(/const st = fillState\(raw\);/, '')) ||
+    app.includes('const st = fillState(raw);'));
+  ok('控えの復元でも補っている', app.includes('mem = fillState(c.state);'));
+  ok('読み込みでも補っている', app.includes('return fillState({'));
+}
+
 /* ==========================================================
    2. データ層のロジック
    ========================================================== */
