@@ -179,6 +179,11 @@ const HARNESS = `
       await waitFor(async () => $('#view-tax').innerText.includes('25,000')),
       $('#view-tax').innerText.slice(0, 160));
 
+    // スマホでは注記の列が消えるので、行の名前だけで意味が通ること
+    ok('基礎控除がどちらの税のものか行の名前で分かる',
+      $('#view-tax').innerText.includes('基礎控除（所得税）') &&
+      $('#view-tax').innerText.includes('基礎控除（住民税）'));
+
     // 青色申告控除をやめると事業所得が増え、上限も上がる
     $('[data-act="edit-tax"]').click();
     await wait(150);

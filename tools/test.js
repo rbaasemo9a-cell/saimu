@@ -1192,6 +1192,18 @@ console.log('\n-- ふるさと納税 --');
     box.COST_RATES[0] === 0 && box.COST_RATES[box.COST_RATES.length - 1] === 100);
 
   /* --- 画面と保存層のつながり --- */
+  // スマホでは注記の列（col-memo）が消える。2つの金額を「A / B」と並べて
+  // 意味を注記に頼ると、そこだけ読めなくなる。実際に基礎控除でそうなっていた。
+  {
+    const view = src.slice(src.indexOf('V.tax = function'), src.indexOf('/* ---------- シミュレーション'));
+    ok('内訳の金額欄に2つの数字を並べていない', !view.includes("+ ' / ' +"),
+      '注記が消えるスマホでは、どちらが何か分からなくなります');
+    ok('基礎控除は所得税と住民税で行を分けている',
+      view.includes('基礎控除（所得税）') && view.includes('基礎控除（住民税）'));
+    ok('課税所得も所得税と住民税で行を分けている',
+      view.includes('課税所得（所得税）') && view.includes('課税所得（住民税）'));
+  }
+
   ok('ふるさと納税タブがある', html.includes('data-view="tax"'));
   ok('ふるさと納税の画面の器がある', html.includes('id="view-tax"'));
   ok('支出カテゴリにふるさと納税がある', src.includes("'ふるさと納税'"));

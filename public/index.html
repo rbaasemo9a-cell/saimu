@@ -2464,16 +2464,24 @@ details.tableview > div { margin-top: 8px; }
                     inp.isTyped('social') ? '手入力' : '記録から。カテゴリ「社会保険」')}
                  ${taxRow('− その他の所得控除', yen(r.otherDeductions - inp.social),
                     '生命保険・iDeCo・医療費・扶養など')}
-                 ${taxRow('− 基礎控除', yen(r.basicI) + ' / ' + yen(r.basicR), '所得税 / 住民税')}
-                 ${taxRow('<b>= 課税所得</b>', '<b>' + yen(r.taxableI) + ' / ' + yen(r.taxableR) + '</b>',
-                    '所得税 / 住民税。千円未満は切り捨て')}
-                 ${taxRow('所得税の税率', pct(r.rate * 100), '課税所得から決まる')}
+                 ${taxRow('− 基礎控除（所得税）', yen(r.basicI), '合計所得に応じて58〜95万円')}
+                 ${taxRow('− 基礎控除（住民税）', yen(r.basicR), '所得2,400万円以下なら43万円')}
+                 ${taxRow('<b>= 課税所得（所得税）</b>', '<b>' + yen(r.taxableI) + '</b>',
+                    '千円未満は切り捨て')}
+                 ${taxRow('<b>= 課税所得（住民税）</b>', '<b>' + yen(r.taxableR) + '</b>',
+                    '千円未満は切り捨て。上限はこちらで決まる')}
+                 ${taxRow('所得税の税率', pct(r.rate * 100), '所得税の課税所得から決まる')}
                  ${taxRow('住民税の所得割額', yen(r.levy),
                     r.fromLevy ? '通知書の実額' : '課税所得×10% − 調整控除 ' + yen(r.adjust), 'amt-pos')}
                  ${taxRow('<b>→ 控除される上限</b>', '<b>' + yen(r.limit) + '</b>',
                     '所得割額の20% ÷ (90% − 税率×1.021) + ' + yen(TAX.selfPay))}
                </tbody>
              </table></div>
+             <p class="hint" style="margin-top:10px">
+               基礎控除が2つあるのは、所得税と住民税で額が違うからです。上限をほぼ決めているのは
+               住民税の側（43万円）で、所得税の側は式に使う税率を選ぶために要ります。
+               この差で住民税が取りすぎになるぶんは、所得割額の行にある<b>調整控除</b>で戻します。
+             </p>
              <p class="hint" style="margin-top:10px">
                住民税決定通知書（毎年6月にもらう紙）の<b>所得割額</b>を編集で入れると、
                控除の入れ忘れに左右されず、一番正確に出ます。
