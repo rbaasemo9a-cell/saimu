@@ -158,19 +158,37 @@ const HARNESS = `
     ok('ふるさと納税の画面が開く', $('#view-tax').innerHTML.includes('控除される上限'));
     $('[data-act="edit-tax"]').click();
     await wait(120);
-    ok('申告内容のダイアログが開く', dlg.open && $('#x-sal') !== null);
-    $('#x-sal').value = '4000000';
-    $('#x-sal').dispatchEvent(new Event('input', { bubbles: true }));
-    $('#x-soc').value = '576000';
-    $('#x-soc').dispatchEvent(new Event('input', { bubbles: true }));
+    ok('申告内容のダイアログが開く', dlg.open && $('#x-biz') !== null);
+    ok('青色申告特別控除が畳まれずに出ている',
+      $('#x-blue') !== null && $('#x-blue').closest('details') === null);
+    const setNum = (id, v) => { $(id).value = v; $(id).dispatchEvent(new Event('input', { bubbles: true })); };
+    setNum('#x-biz', '3000000');
+    setNum('#x-cost', '500000');
+    setNum('#x-soc', '400000');
+    $('#x-blue').value = '650000';
+    $('#x-blue').dispatchEvent(new Event('change', { bubbles: true }));
     $('#dlgOk').click();
-    const taxSaved = await waitFor(async () =>
-      ((await (await fetch('/api/state')).json()).tax || []).length === 1);
-    ok('申告内容が保存される', taxSaved, 'submit=' + diag.submit + ' post=' + diag.posts);
-    // 年収400万・社会保険57.6万なら上限は42,000円（総務省の目安表と同じ）
+    const taxSaved = await waitFor(async () => {
+      const t = ((await (await fetch('/api/state')).json()).tax || [])[0];
+      return t && t.blue === 650000 && t.bizIncome === 3000000;
+    });
+    ok('申告内容が保存される（青色申告控除も）', taxSaved,
+      'submit=' + diag.submit + ' post=' + diag.posts);
+    // 売上300万・経費50万・青色65万・社保40万 なら上限は25,000円
     ok('保存した内容で上限が計算されて画面に出る',
-      await waitFor(async () => $('#view-tax').innerText.includes('42,000')),
-      $('#view-tax').innerText.slice(0, 200).replace(/\\n/g, ' '));
+      await waitFor(async () => $('#view-tax').innerText.includes('25,000')),
+      $('#view-tax').innerText.slice(0, 160));
+
+    // 青色申告控除をやめると事業所得が増え、上限も上がる
+    $('[data-act="edit-tax"]').click();
+    await wait(150);
+    ok('保存した青色申告控除が選ばれた状態で開く', $('#x-blue').value === '650000', $('#x-blue').value);
+    $('#x-blue').value = '0';
+    $('#x-blue').dispatchEvent(new Event('change', { bubbles: true }));
+    $('#dlgOk').click();
+    ok('青色申告控除を外すと上限が上がる',
+      await waitFor(async () => $('#view-tax').innerText.includes('40,000')),
+      $('#view-tax').innerText.slice(0, 160));
 
     // --- 11. 経費の割合を変えると計上額が変わる ---
     nav('cash'); await wait(150);

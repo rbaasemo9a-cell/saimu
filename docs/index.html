@@ -2388,8 +2388,10 @@ window.saimuSignOut = signOutAndReset;
 
   /* ---------- ふるさと納税 ---------- */
 
-  // 事業の売上として数えるカテゴリ。配達の現金回収もここに入る。
-  const TAX_BIZ_IN  = ['配達（現金回収）', '副業', '事業'];
+  // 給与として扱うカテゴリ。額面を手で入れたときだけ、売上から外して二重計上を防ぐ。
+  const TAX_SALARY_CATS = ['給与', '賞与'];
+  // 青色申告特別控除は法律で決まった3つの額しか無い。自由入力にする意味がない。
+  const BLUE_AMOUNTS = [[0, '使わない'], [100000, '10万円'], [550000, '55万円'], [650000, '65万円']];
   const TAX_CUSTODY = '預かり金の返却';
   const TAX_SOCIAL  = '社会保険';
   const TAX_DONATE  = 'ふるさと納税';
@@ -2399,10 +2401,11 @@ window.saimuSignOut = signOutAndReset;
   /**
    * その年の記録から、申告に使う数字を集める。
    *
-   * 給与はここに入れない。この画面が欲しいのは額面だが、記録しているのは手取りで、
-   * 額面は源泉徴収票を見ないと分からない。勝手に手取りを使うと上限を低く出してしまう。
+   * 収入はすべて事業の売上として数える。
+   * ただし給与の額面を手で入れているときだけは、給与・賞与を売上から外す。
+   * 記録しているのは手取りなので、額面と足すと同じ収入を二重に数えてしまう。
    */
-  function taxAuto(year) {
+  function taxAuto(year, salaryTyped) {
     const y = String(year);
     const inYear = t => String(t.date || '').slice(0, 4) === y;
     const all = rows('txns').filter(inYear);
@@ -2410,7 +2413,9 @@ window.saimuSignOut = signOutAndReset;
     const te = all.filter(t => t.type === 'expense');
     const sum = (a, f) => a.reduce((s, t) => s + (f ? f(t) : t.amount), 0);
 
-    const gross = sum(ti.filter(t => TAX_BIZ_IN.includes(t.category)));
+    const counted = salaryTyped ? ti.filter(t => !TAX_SALARY_CATS.includes(t.category)) : ti;
+    const gross = sum(counted);
+    const excluded = sum(ti) - gross;      // 給与の額面を手で入れたぶん、売上から外した額
     const custody = sum(te.filter(t => t.category === TAX_CUSTODY));
     // 預かり金は客から預かっただけで自分の売上ではない。返した分を引くと報酬が残る。
     const bizIncome = Math.max(0, gross - custody);
@@ -2421,7 +2426,7 @@ window.saimuSignOut = signOutAndReset;
     const donated = sum(te.filter(t => t.category === TAX_DONATE));
     // 記録のある月数。年の途中なら、上限も途中までの数字で出ていることになる。
     const months = new Set(all.map(t => String(t.date).slice(0, 7))).size;
-    return { gross, custody, bizIncome, bizCost, social, donated,
+    return { gross, custody, bizIncome, bizCost, social, donated, excluded,
              costCount: costRows.length, months, txnCount: all.length };
   }
 
@@ -2431,7 +2436,7 @@ window.saimuSignOut = signOutAndReset;
    */
   function taxInput(year) {
     const saved = rows('tax').find(t => Number(t.year) === Number(year)) || {};
-    const auto = taxAuto(year);
+    const auto = taxAuto(year, Math.max(0, Number(saved.salary) || 0) > 0);
     const typed = k => Math.max(0, Number(saved[k]) || 0);
     const or = (k, a) => (typed(k) > 0 ? typed(k) : a);
     return {
@@ -3673,10 +3678,9 @@ window.saimuSignOut = signOutAndReset;
     if (r.noLevy) {
       verdict = `<div class="callout warn">${ICON.warn}<div>この内容だと住民税の所得割が出ません。
         ふるさと納税をしても差し引く税金が無いので、寄付した額がそのまま自己負担になります。
-        給与の額面をまだ入れていないなら、<b>編集</b>から入れてください。</div></div>`;
-    } else if (!inp.isTyped('salary') && !inp.isTyped('levy') && inp.bizIncome > 0) {
-      verdict = `<div class="callout info">${ICON.info}<div>いまは事業（配達・副業）の分だけで計算しています。
-        給与があるなら、源泉徴収票の「支払金額」を<b>編集</b>から入れてください。上限が大きく変わります。</div></div>`;
+        ${auto.txnCount === 0
+          ? `${taxYear}年の収入と支出をまだ記録していません。記録するか、<b>編集</b>から直接入れてください。`
+          : '所得より控除の方が大きくなっています。<b>編集</b>から内容を確かめてください。'}</div></div>`;
     } else if (r.capped) {
       verdict = `<div class="callout warn">${ICON.warn}<div>寄付できる額が総所得の30%で頭打ちになりました。
         これを超えるぶんは住民税から差し引けません。</div></div>`;
@@ -3731,18 +3735,21 @@ window.saimuSignOut = signOutAndReset;
            <div class="panel-body">
              <div class="table-wrap"><table class="ledger">
                <tbody>
-                 ${taxRow('給与の額面', yen(r.salaryRev), inp.isTyped('salary') ? '源泉徴収票の支払金額' : '未入力')}
-                 ${taxRow('− 給与所得控除', yen(r.salaryRev - r.salaryPart), '')}
-                 ${taxRow('<b>= 給与所得</b>', '<b>' + yen(r.salaryPart) + '</b>', '')}
-                 ${taxRow('事業・副業の売上', yen(r.bizRev),
+                 ${taxRow('事業の売上', yen(r.bizRev),
                     inp.isTyped('bizIncome') ? '手入力'
                     : auto.custody > 0
-                      ? '記録から。受取 ' + yen(auto.gross) + ' − 預かり金の返却 ' + yen(auto.custody)
-                      : '記録から')}
+                      ? '記録から。収入 ' + yen(auto.gross) + ' − 預かり金の返却 ' + yen(auto.custody)
+                      : '記録から。すべての収入')}
                  ${taxRow('− 経費', yen(r.bizCost),
                     inp.isTyped('bizCost') ? '手入力' : '記録から。' + auto.costCount + '件')}
-                 ${r.blue > 0 ? taxRow('− 青色申告特別控除', yen(r.blue), '') : ''}
+                 ${taxRow('− 青色申告特別控除', r.blue > 0 ? yen(r.blue) : '—',
+                    r.blue > 0 ? '' : '使っていません')}
                  ${taxRow('<b>= 事業所得</b>', '<b>' + yen(r.bizPart) + '</b>', '')}
+                 ${r.salaryRev > 0 ? `
+                 ${taxRow('給与の額面', yen(r.salaryRev), '源泉徴収票の支払金額')}
+                 ${taxRow('− 給与所得控除', yen(r.salaryRev - r.salaryPart), '')}
+                 ${taxRow('<b>= 給与所得</b>', '<b>' + yen(r.salaryPart) + '</b>',
+                    auto.excluded > 0 ? '給与・賞与の記録 ' + yen(auto.excluded) + ' は売上から外しました' : '')}` : ''}
                  ${taxRow('<b>= 合計所得</b>', '<b>' + yen(r.total) + '</b>', '')}
                  ${taxRow('− 社会保険料控除', yen(inp.social),
                     inp.isTyped('social') ? '手入力' : '記録から。カテゴリ「社会保険」')}
@@ -4556,18 +4563,23 @@ window.saimuSignOut = signOutAndReset;
       lede: '空欄のままにすると、記録から集計した数字を使います。',
       ok: '保存',
       body: `<div class="form-grid">
-        ${fld('x-sal', 'salary', '給与の年収（額面）', inp.salary,
-              '源泉徴収票の「支払金額」。手取りではありません')}
-        ${auf('x-soc', 'social', '社会保険料控除', inp.saved.social, auto.social)}
-        ${auf('x-biz', 'bizIncome', '事業・副業の売上', inp.saved.bizIncome, auto.bizIncome)}
+        ${auf('x-biz', 'bizIncome', '事業の売上', inp.saved.bizIncome, auto.bizIncome)}
         ${auf('x-cost', 'bizCost', '経費', inp.saved.bizCost, auto.bizCost)}
+        <div class="field"><label for="x-blue">青色申告特別控除</label>
+          <select id="x-blue" name="blue">
+            ${BLUE_AMOUNTS.map(([v, label]) =>
+              `<option value="${v}"${inp.blue === v ? ' selected' : ''}>${label}</option>`).join('')}
+          </select>
+          <span class="note">複式簿記＋e-Taxなら65万、書面なら55万、簡易簿記は10万</span></div>
+        ${auf('x-soc', 'social', '社会保険料控除', inp.saved.social, auto.social)}
         <div class="field full"><label for="x-levy">住民税の所得割額</label>
           <input type="number" id="x-levy" name="levy" min="0" step="1" inputmode="numeric"
                  value="${inp.levy > 0 ? Math.round(inp.levy) : ''}" placeholder="決定通知書に載っている額">
           <span class="note">入れると上の項目より優先され、一番正確になります</span></div>
-        <details class="tableview full"><summary>その他の控除</summary>
+        <details class="tableview full"><summary>給与・その他の控除</summary>
           <div class="form-grid" style="margin-top:10px">
-            ${fld('x-blue', 'blue', '青色申告特別控除', inp.blue, '青色申告なら 10 / 55 / 65万円')}
+            ${fld('x-sal', 'salary', '給与の年収（額面）', inp.salary,
+                  '源泉徴収票の「支払金額」。入れると給与・賞与の記録は売上から外します')}
             ${fld('x-life', 'lifeIns', '生命保険料控除', inp.lifeIns, '最大12万円')}
             ${fld('x-ide', 'ideco', 'iDeCo・小規模企業共済', inp.ideco, '掛金の全額')}
             ${fld('x-med', 'medical', '医療費控除', inp.medical, '10万円を超えた分')}
@@ -4579,7 +4591,7 @@ window.saimuSignOut = signOutAndReset;
       onOpen: () => {
         // 中に入力済みの数字があるなら、隠したままでは気づけない
         const d = document.querySelector('#dlgBody details');
-        if (d && ['blue', 'lifeIns', 'ideco', 'medical', 'family', 'otherDed']
+        if (d && ['salary', 'lifeIns', 'ideco', 'medical', 'family', 'otherDed']
               .some(k => inp[k] > 0)) d.open = true;
       },
       onOk: fd => {

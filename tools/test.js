@@ -1001,13 +1001,14 @@ console.log('\n-- ふるさと納税 --');
 {
   const code = [grab('TAX', 'const'), grab('taxPick', 'const'), grab('floor1000', 'const'),
                 grab('salaryIncome'), grab('adjustCredit'), grab('furusato'),
-                grab('TAX_BIZ_IN', 'const'), grab('TAX_CUSTODY', 'const'),
+                grab('TAX_SALARY_CATS', 'const'), grab('BLUE_AMOUNTS', 'const'),
+                grab('TAX_CUSTODY', 'const'),
                 grab('TAX_SOCIAL', 'const'), grab('TAX_DONATE', 'const'),
                 grab('COST_RATES', 'const'),
                 grab('rows', 'const'), grab('taxAuto'), grab('taxInput'),
                 grab('costByCategory')].join('\n');
   const fn = new Function('state', code +
-    '\nreturn { furusato, salaryIncome, adjustCredit, taxAuto, taxInput, costByCategory, TAX, COST_RATES };');
+    '\nreturn { furusato, salaryIncome, adjustCredit, taxAuto, taxInput, costByCategory, TAX, COST_RATES, BLUE_AMOUNTS };');
   const box = {};
   const load = st => Object.assign(box, fn(st));
   load({ txns: [], tax: [] });
@@ -1083,6 +1084,60 @@ console.log('\n-- ふるさと納税 --');
   ok('寄付できる額は総所得の30%で頭打ち',
     box.furusato({ salary: 1100000, levy: 5000000 }).capped === true);
 
+
+  /* --- 収入はすべて事業の売上として数える --- */
+  {
+    const st = { tax: [], txns: [
+      { id: 'a', type: 'income', date: '2026-02-01', amount: 100000, category: '配達（現金回収）', costRate: 0 },
+      { id: 'b', type: 'income', date: '2026-02-02', amount: 50000,  category: '副業', costRate: 0 },
+      { id: 'c', type: 'income', date: '2026-02-03', amount: 30000,  category: 'その他収入', costRate: 0 },
+      { id: 'd', type: 'income', date: '2026-02-04', amount: 20000,  category: '年金・給付', costRate: 0 },
+      { id: 'e', type: 'income', date: '2026-02-05', amount: 200000, category: '給与', costRate: 0 },
+      { id: 'f', type: 'income', date: '2026-02-06', amount: 40000,  category: '賞与', costRate: 0 }
+    ] };
+    load(st);
+    const all = 100000 + 50000 + 30000 + 20000 + 200000 + 40000;
+    ok('カテゴリを問わず収入はすべて売上に入る', box.taxAuto(2026).bizIncome === all,
+      String(box.taxAuto(2026).bizIncome) + ' / ' + all);
+    ok('給与の額面を入れていなければ何も外さない', box.taxAuto(2026).excluded === 0);
+
+    // 給与の額面を手で入れたときだけ、給与・賞与を売上から外す。
+    // 記録は手取りなので、額面と足すと同じ収入を二重に数えてしまう。
+    const auto2 = box.taxAuto(2026, true);
+    ok('給与の額面を入れると給与・賞与は売上から外れる',
+      auto2.bizIncome === all - 200000 - 40000, String(auto2.bizIncome));
+    ok('外した額を画面に出せるよう持っている', auto2.excluded === 240000, String(auto2.excluded));
+
+    load({ txns: st.txns, tax: [{ year: 2026, salary: 3600000, bizIncome: 0, bizCost: 0,
+      social: 0, blue: 0, lifeIns: 0, ideco: 0, medical: 0, family: 0, otherDed: 0,
+      levy: 0, memo: '' }] });
+    ok('給与を入れた年は売上から給与・賞与が抜ける',
+      box.taxInput(2026).bizIncome === all - 240000, String(box.taxInput(2026).bizIncome));
+    ok('給与所得と事業所得の両方が合計所得に入る', (() => {
+      const r = box.furusato(box.taxInput(2026));
+      return r.salaryPart > 0 && r.bizPart > 0 && r.total === r.salaryPart + r.bizPart;
+    })());
+  }
+
+  /* --- 青色申告特別控除 --- */
+  {
+    ok('青色申告特別控除の選択肢は 0 / 10 / 55 / 65万円',
+      box.BLUE_AMOUNTS.map(x => x[0]).join(',') === '0,100000,550000,650000',
+      box.BLUE_AMOUNTS.map(x => x[0]).join(','));
+
+    const base = { bizIncome: 3000000, bizCost: 500000, social: 400000 };
+    const none = box.furusato(base);
+    const b65 = box.furusato(Object.assign({}, base, { blue: 650000 }));
+    ok('青色申告特別控除は事業所得から引く', b65.bizPart === none.bizPart - 650000);
+    ok('青色申告特別控除を使うと上限が下がる', b65.limit < none.limit,
+      none.limit + ' → ' + b65.limit);
+    ok('控除が事業所得を超えても所得はマイナスにならない',
+      box.furusato({ bizIncome: 300000, blue: 650000 }).bizPart === 0);
+    ok('額が大きいほど所得が小さくなる',
+      box.furusato(Object.assign({}, base, { blue: 100000 })).bizPart >
+      box.furusato(Object.assign({}, base, { blue: 550000 })).bizPart);
+  }
+
   /* --- 記録からの集計 --- */
   {
     const st = { tax: [], txns: [
@@ -1106,7 +1161,7 @@ console.log('\n-- ふるさと納税 --');
     ok('記録のある月数を数える', a.months === 2, String(a.months));
 
     ok('手入力が無ければ記録の数字を使う', box.taxInput(2026).bizIncome === a.bizIncome);
-    ok('給与は記録から自動で入れない（記録は手取りのため）', box.taxInput(2026).salary === 0);
+    ok('給与の額面は記録から自動で入れない（記録は手取りのため）', box.taxInput(2026).salary === 0);
 
     load({ txns: st.txns, tax: [{ year: 2026, salary: 3000000, bizIncome: 999999,
       bizCost: 0, social: 0, blue: 0, lifeIns: 0, ideco: 0, medical: 0, family: 0,
