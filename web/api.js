@@ -24,6 +24,7 @@ function derive(st) {
     cards: st.cards.slice(),
     cardBills: st.cardBills.slice(),
     borrows: st.borrows.slice(),
+    fixed: st.fixed.slice(),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -130,6 +131,26 @@ const MUT = {
     rebuildDebt(d);
   },
 
+  addFixed(b) {
+    const type = b.type === 'income' ? 'income' : 'expense';
+    const amount = Math.max(0, toNum(b.amount));
+    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    mem.fixed.push({ id: newId(), type, category: strOf(b.category, 30) || 'その他',
+                     amount, memo: strOf(b.memo, 60), createdAt: nowISO() });
+  },
+
+  updateFixed(id, b) {
+    const f = mem.fixed.find(x => x.id === id);
+    if (!f) throw new Refused('その項目は見つかりません');
+    const amount = Math.max(0, toNum(b.amount));
+    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    f.category = strOf(b.category, 30) || 'その他';
+    f.amount = amount;
+    f.memo = strOf(b.memo, 60);
+  },
+
+  deleteFixed(id) { mem.fixed = mem.fixed.filter(f => f.id !== id); },
+
   deleteBorrow(id) {
     const b = mem.borrows.find(x => x.id === id);
     if (!b) return;
@@ -214,7 +235,7 @@ const MUT = {
   },
 
   wipe() {
-    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -280,8 +301,17 @@ const MUT = {
       borrows.push({ id: strOf(b.id, 40) || newId(), debtId: strOf(b.debtId, 40),
                      date: dateOrDefault(b.date, nowISO()), amount, memo: strOf(b.memo, 60) });
     }
+    const fixed = [];
+    for (const f of (p.fixed || [])) {
+      const amount = toNum(f.amount);
+      if (!(amount > 0)) continue;
+      fixed.push({ id: strOf(f.id, 40) || newId(),
+                   type: f.type === 'income' ? 'income' : 'expense',
+                   category: strOf(f.category, 30) || 'その他', amount,
+                   memo: strOf(f.memo, 60), createdAt: dateOrDefault(f.createdAt, nowISO()) });
+    }
     const g = p.goals || {};
-    mem = { debts, cards, cardBills, txns, repayments, borrows, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, borrows, fixed, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -408,6 +438,11 @@ async function api(path, method, body) {
     case 'cardbills':
       if (m === 'POST')   return save(() => MUT.setCardBill(body));
       if (m === 'DELETE') return save(() => MUT.deleteCardBill(id));
+      break;
+    case 'fixed':
+      if (m === 'POST')   return save(() => MUT.addFixed(body));
+      if (m === 'PUT')    return save(() => MUT.updateFixed(id, body));
+      if (m === 'DELETE') return save(() => MUT.deleteFixed(id));
       break;
     case 'goals':
       if (m === 'PUT')    return save(() => MUT.setGoals(body));

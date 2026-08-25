@@ -324,6 +324,28 @@ ok('収支を登録できる', db.getState().txns.length === 2);
     (t.category === '食費' && t.date === '2026-08-16')).forEach(t => db.deleteTxn(t.id));
 }
 
+// 毎月の固定収支
+{
+  const i1 = db.addFixed({ type: 'income', category: '給与', amount: 280000 });
+  db.addFixed({ type: 'expense', category: '住居', amount: 82000 });
+  db.addFixed({ type: 'expense', category: '社会保険', amount: 45000 });
+  ok('固定収支を登録できる', db.getState().fixed.length === 3);
+
+  let threw = 0;
+  try { db.addFixed({ type: 'income', category: '給与', amount: 0 }); } catch (e) { threw++; }
+  try { db.addFixed({ type: 'expense', category: '住居', amount: -100 }); } catch (e) { threw++; }
+  try { db.updateFixed('nope', { amount: 100 }); } catch (e) { threw++; }
+  ok('0円・マイナス・存在しないIDは拒否される', threw === 3, 'threw=' + threw);
+
+  db.updateFixed(i1, { category: '給与', amount: 300000, memo: '昇給' });
+  const upd = db.getState().fixed.find(f => f.id === i1);
+  ok('固定収支を編集できる', upd.amount === 300000 && upd.memo === '昇給');
+
+  db.deleteFixed(i1);
+  ok('固定収支を削除できる', db.getState().fixed.length === 2);
+  db.getState().fixed.forEach(f => db.deleteFixed(f.id));
+}
+
 // 月キーの加算 — 年をまたいでも壊れない
 {
   const cases = [['2026-08', 1, '2026-09'], ['2026-12', 1, '2027-01'],
@@ -715,6 +737,44 @@ console.log('\n現金回収と取り置き');
     monthSummary('2026-08').expensePaid === 5000 && payMonthOf(state.txns[0]) === '2026-08');
   ok('月キーの加算はフロント側も年をまたげる',
     addMonthKey('2026-12', 1) === '2027-01' && addMonthKey('2026-01', -1) === '2025-12');
+}
+
+/* ---------- 目標からの逆算（いくら稼ぐ／節約するか） ---------- */
+{
+  const fixedPlan = eval('(' + grab('fixedPlan') + ')');
+  const set = fixed => { state = { fixed }; F.set(state); };
+  // fixedPlan は rows() 経由で state を読むので、F の中の state を使う
+  const F2 = new Function([
+    'let state;', grab('rows', 'const'), grab('fixedPlan'),
+    'return { set: s => { state = s; }, fixedPlan };'
+  ].join(String.fromCharCode(10)))();
+
+  F2.set({ fixed: [
+    { type: 'income', category: '給与', amount: 280000 },
+    { type: 'expense', category: '住居', amount: 82000 },
+    { type: 'expense', category: '社会保険', amount: 45000 },
+    { type: 'expense', category: '食費', amount: 50000 },
+    { type: 'expense', category: '通信', amount: 11000 }
+  ] });
+
+  const p1 = F2.fixedPlan(77000);
+  ok('固定収入と固定支出を集計する',
+    p1.income === 280000 && p1.expense === 188000, `${p1.income}/${p1.expense}`);
+  ok('返済に回せる額は 固定収入 − 固定支出', p1.left === 92000, String(p1.left));
+  ok('目標に届いていれば不足はゼロ', p1.need === 0, String(p1.need));
+
+  const p2 = F2.fixedPlan(120000);
+  ok('届かなければ不足額を出す', p2.need === 28000, String(p2.need));
+
+  const p3 = F2.fixedPlan(180000);
+  ok('目標が上がれば不足も増える', p3.need === 88000, String(p3.need));
+
+  F2.set({ fixed: [] });
+  ok('未登録なら has が false', F2.fixedPlan(100000).has === false);
+  ok('未登録でも落ちない', F2.fixedPlan(100000).need === 100000);
+
+  F2.set({});
+  ok('fixed が無い保存先でも落ちない', F2.fixedPlan(50000).left === 0);
 }
 
 /* ---------- 計画は雪だるま式に固定 ---------- */

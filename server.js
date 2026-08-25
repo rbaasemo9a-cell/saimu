@@ -238,6 +238,12 @@ async function api(req, res, pathname) {
       if (m === 'DELETE') { db.deleteCardBill(id); return ok(); }
       break;
 
+    case 'fixed':
+      if (m === 'POST')   { db.addFixed(body); return ok(); }
+      if (m === 'PUT')    { db.updateFixed(id, body); return ok(); }
+      if (m === 'DELETE') { db.deleteFixed(id); return ok(); }
+      break;
+
     case 'goals':
       if (m === 'PUT')    { db.setGoals(body); return ok(); }
       break;

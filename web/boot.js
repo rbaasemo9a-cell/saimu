@@ -109,7 +109,7 @@ function showCached() {
 
 async function boot() {
   online = false;
-  mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+  mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
 

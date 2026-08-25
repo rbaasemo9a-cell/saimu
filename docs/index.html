@@ -805,7 +805,7 @@ details.tableview > div { margin-top: 8px; }
      2. 状態と保存
      ========================================================== */
   const blank = () => ({
-    debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+    debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
     goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 },
     v: 1
   });
@@ -859,6 +859,7 @@ const TABLES = {
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
+  fixed: ['id', 'type', 'category', 'amount', 'memo', 'createdAt'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
@@ -1211,6 +1212,7 @@ async function readAll() {
     cards: byTable.cards,
     cardBills: byTable.cardBills,
     borrows: byTable.borrows,
+    fixed: byTable.fixed,
     txns: byTable.txns,
     repayments: byTable.repayments,
     goals: {
@@ -1226,7 +1228,7 @@ async function readAll() {
 async function writeAll(st) {
   const payload = {
     debts: st.debts, txns: st.txns, repayments: st.repayments,
-    cards: st.cards, cardBills: st.cardBills, borrows: st.borrows,
+    cards: st.cards, cardBills: st.cardBills, borrows: st.borrows, fixed: st.fixed,
     goals: [st.goals],
     meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
   };
@@ -1296,6 +1298,7 @@ function derive(st) {
     cards: st.cards.slice(),
     cardBills: st.cardBills.slice(),
     borrows: st.borrows.slice(),
+    fixed: st.fixed.slice(),
     txns: st.txns.slice().sort((a, b) => b.date.localeCompare(a.date)),
     repayments: st.repayments.slice().sort((a, b) => b.date.localeCompare(a.date)),
     goals: st.goals
@@ -1402,6 +1405,26 @@ const MUT = {
     rebuildDebt(d);
   },
 
+  addFixed(b) {
+    const type = b.type === 'income' ? 'income' : 'expense';
+    const amount = Math.max(0, toNum(b.amount));
+    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    mem.fixed.push({ id: newId(), type, category: strOf(b.category, 30) || 'その他',
+                     amount, memo: strOf(b.memo, 60), createdAt: nowISO() });
+  },
+
+  updateFixed(id, b) {
+    const f = mem.fixed.find(x => x.id === id);
+    if (!f) throw new Refused('その項目は見つかりません');
+    const amount = Math.max(0, toNum(b.amount));
+    if (!(amount > 0)) throw new Refused('金額は1円以上で入力してください');
+    f.category = strOf(b.category, 30) || 'その他';
+    f.amount = amount;
+    f.memo = strOf(b.memo, 60);
+  },
+
+  deleteFixed(id) { mem.fixed = mem.fixed.filter(f => f.id !== id); },
+
   deleteBorrow(id) {
     const b = mem.borrows.find(x => x.id === id);
     if (!b) return;
@@ -1486,7 +1509,7 @@ const MUT = {
   },
 
   wipe() {
-    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+    mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
             goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   },
 
@@ -1552,8 +1575,17 @@ const MUT = {
       borrows.push({ id: strOf(b.id, 40) || newId(), debtId: strOf(b.debtId, 40),
                      date: dateOrDefault(b.date, nowISO()), amount, memo: strOf(b.memo, 60) });
     }
+    const fixed = [];
+    for (const f of (p.fixed || [])) {
+      const amount = toNum(f.amount);
+      if (!(amount > 0)) continue;
+      fixed.push({ id: strOf(f.id, 40) || newId(),
+                   type: f.type === 'income' ? 'income' : 'expense',
+                   category: strOf(f.category, 30) || 'その他', amount,
+                   memo: strOf(f.memo, 60), createdAt: dateOrDefault(f.createdAt, nowISO()) });
+    }
     const g = p.goals || {};
-    mem = { debts, cards, cardBills, txns, repayments, borrows, goals: {
+    mem = { debts, cards, cardBills, txns, repayments, borrows, fixed, goals: {
       targetDate: dateOrDefault(g.targetDate, ''),
       monthlyRepay: Math.max(0, toNum(g.monthlyRepay)),
       emergency: Math.max(0, toNum(g.emergency)),
@@ -1680,6 +1712,11 @@ async function api(path, method, body) {
     case 'cardbills':
       if (m === 'POST')   return save(() => MUT.setCardBill(body));
       if (m === 'DELETE') return save(() => MUT.deleteCardBill(id));
+      break;
+    case 'fixed':
+      if (m === 'POST')   return save(() => MUT.addFixed(body));
+      if (m === 'PUT')    return save(() => MUT.updateFixed(id, body));
+      if (m === 'DELETE') return save(() => MUT.deleteFixed(id));
       break;
     case 'goals':
       if (m === 'PUT')    return save(() => MUT.setGoals(body));
@@ -1838,7 +1875,7 @@ function showCached() {
 
 async function boot() {
   online = false;
-  mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [],
+  mem = { debts: [], txns: [], repayments: [], borrows: [], cards: [], cardBills: [], fixed: [],
           goals: { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 } };
   adopt(mem);
 
@@ -2185,6 +2222,23 @@ window.saimuSignOut = signOutAndReset;
       out.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'));
     }
     return out;
+  }
+
+  /**
+   * 毎月の固定収支から、目標返済額に届くかを見る。
+   *   返済に回せる額 = 固定収入 − 固定支出
+   *   不足           = 目標返済額 − 返済に回せる額
+   * 不足があるなら、その分を稼ぐか、支出を削るかのどちらかで埋めることになる。
+   */
+  function fixedPlan(goalRepay) {
+    const income = rows('fixed').filter(f => f.type === 'income')
+      .reduce((a, f) => a + f.amount, 0);
+    const expense = rows('fixed').filter(f => f.type === 'expense')
+      .reduce((a, f) => a + f.amount, 0);
+    const left = income - expense;
+    return { income, expense, left,
+             need: Math.max(0, (goalRepay || 0) - left),
+             has: rows('fixed').length > 0 };
   }
 
   /**
@@ -3068,6 +3122,7 @@ window.saimuSignOut = signOutAndReset;
     const mrepay = mSum.repay;
     const mNet = mSum.net;
     const hold = committedNext(thisMonth());
+    const plan = fixedPlan(g.monthlyRepay || 0);
     const mgoal = g.monthlyRepay || 0;
     const mprog = mgoal > 0 ? (mrepay / mgoal) * 100 : 0;
 
@@ -3098,6 +3153,55 @@ window.saimuSignOut = signOutAndReset;
        <div class="panel" style="margin-top:16px">
          <div class="panel-head"><h2>完済目標からの逆算</h2></div>
          <div class="panel-body">${targetBlock}</div>
+       </div>
+
+       <div class="panel" style="margin-top:16px">
+         <div class="panel-head"><h2>毎月の固定収支から逆算</h2>
+           <span class="hint">目標 ${mgoal ? yen(mgoal) : '未設定'}／月</span></div>
+         <div class="panel-body">
+           ${!plan.has
+             ? `<p style="color:var(--ink-3);font-size:13px">毎月決まって入るお金と出るお金を登録すると、目標を達成するために<b>あといくら稼げばよいか</b>、または<b>いくら節約すればよいか</b>を計算します。</p>`
+             : `<div class="grid g-3" style="gap:14px">
+                  <div class="tile"><span class="tile-label">固定の収入</span>
+                    <span class="tile-value pos">${yen(plan.income)}</span></div>
+                  <div class="tile"><span class="tile-label">固定の支出</span>
+                    <span class="tile-value">${yen(plan.expense)}</span></div>
+                  <div class="tile"><span class="tile-label">返済に回せる額</span>
+                    <span class="tile-value ${plan.left < 0 ? 'neg' : ''}">${yen(plan.left)}</span>
+                    <span class="tile-delta">固定収入 − 固定支出</span></div>
+                </div>
+                ${!mgoal
+                  ? `<div class="callout info" style="margin-top:13px">${ICON.info}<div>月々の返済目標を設定すると、不足額を計算します。</div></div>`
+                  : plan.need <= 0
+                  ? `<div class="callout info" style="margin-top:13px">${ICON.ok}<div>固定の収支だけで目標 <b>${yen(mgoal)}</b> に届いています（<b>${yen(plan.left - mgoal)}</b> の余裕）。</div></div>`
+                  : `<div class="callout warn" style="margin-top:13px">${ICON.warn}<div>
+                       目標 <b>${yen(mgoal)}</b> に対して <b>${yen(plan.need)}</b> 足りません。次のどちらか、または組み合わせで埋めます。</div></div>
+                     <div class="grid g-2" style="gap:14px;margin-top:13px">
+                       <div class="tile"><span class="tile-label">副業などで稼ぐ</span>
+                         <span class="tile-value">${yen(plan.need)}</span>
+                         <span class="tile-delta">1日あたり ${yen(plan.need / 30)}・週 ${yen(plan.need / 30 * 7)}</span></div>
+                       <div class="tile"><span class="tile-label">固定支出を減らす</span>
+                         <span class="tile-value">${yen(plan.need)}</span>
+                         <span class="tile-delta">いまの固定支出の ${pct(plan.expense > 0 ? plan.need / plan.expense * 100 : 0)}</span></div>
+                     </div>`}`}
+
+           ${rows('fixed').length ? `<div class="table-wrap" style="margin-top:14px"><table class="ledger">
+               <thead><tr><th>区分</th><th>項目</th><th class="r">毎月</th><th class="col-memo">メモ</th><th></th></tr></thead>
+               <tbody>${rows('fixed').map(f => `<tr>
+                 <td>${f.type === 'income'
+                   ? '<span class="pill ok">収入</span>'
+                   : '<span class="pill flat">支出</span>'}</td>
+                 <td>${esc(f.category)}</td>
+                 <td class="r">${yen(f.amount)}</td>
+                 <td class="col-memo" style="color:var(--ink-2)">${esc(f.memo || '')}</td>
+                 <td class="r"><button class="btn sm" data-act="edit-fixed" data-id="${f.id}">編集</button></td>
+               </tr>`).join('')}</tbody></table></div>` : ''}
+           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+             <button class="btn" data-act="add-fixed-income">${ICON.plus}固定の収入</button>
+             <button class="btn" data-act="add-fixed-expense">${ICON.plus}固定の支出</button>
+           </div>
+           <p class="note" style="margin-top:10px">ここに入れた金額は計画のための数字です。実際の収支の記録にはなりません。</p>
+         </div>
        </div>
 
        <div class="grid g-2" style="margin-top:16px">
@@ -3791,6 +3895,55 @@ window.saimuSignOut = signOutAndReset;
     });
   }
 
+  function fixedDialog(type, id) {
+    const f = id ? rows('fixed').find(x => x.id === id) : null;
+    const kind = f ? f.type : type;
+    const cats = kind === 'income' ? INCOME_CATS : EXPENSE_CATS;
+    const label = kind === 'income' ? '固定の収入' : '固定の支出';
+    openDialog({
+      title: f ? label + 'を編集' : label + 'を追加',
+      lede: kind === 'income'
+        ? '毎月決まって入るお金。計画に使う数字で、収支の記録にはなりません。'
+        : '毎月決まって出るお金。計画に使う数字で、収支の記録にはなりません。',
+      body: `<div class="form-grid">
+        <div class="field"><label for="x-cat">項目</label>
+          <select id="x-cat" name="category">
+            ${cats.map(c => `<option${f && f.category === c ? ' selected' : ''}>${esc(c)}</option>`).join('')}
+          </select></div>
+        <div class="field"><label for="x-amt">毎月の金額（円）</label>
+          <input type="number" id="x-amt" name="amount" required min="1" step="1"
+                 value="${f ? Math.round(f.amount) : ''}" placeholder="0"></div>
+        <div class="field full"><label for="x-memo">メモ</label>
+          <input type="text" id="x-memo" name="memo" maxlength="60" placeholder="任意"
+                 value="${f ? esc(f.memo) : ''}"></div>
+      </div>`,
+      onOpen: f ? () => {
+        const foot = document.querySelector('.dlg-foot');
+        if (!foot) return;
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn danger'; b.textContent = '削除';
+        b.dataset.injected = '1';
+        b.addEventListener('click', () => {
+          dlg.close('cancel');
+          commit('/fixed/' + f.id, 'DELETE', undefined, '削除しました');
+        });
+        foot.insertBefore(b, foot.firstChild);
+      } : undefined,
+      onOk: fd => {
+        const amount = numOf(fd, 'amount');
+        if (amount <= 0) return false;
+        const body = {
+          type: kind,
+          category: String(fd.get('category') || 'その他'),
+          amount,
+          memo: String(fd.get('memo') || '').trim()
+        };
+        if (f) commit('/fixed/' + f.id, 'PUT', body, '更新しました');
+        else commit('/fixed', 'POST', body, label + 'を追加しました');
+      }
+    });
+  }
+
   function goalsDialog() {
     const g = state.goals;
     openDialog({
@@ -3895,6 +4048,9 @@ window.saimuSignOut = signOutAndReset;
       case 'add-income': txnDialog('income'); break;
       case 'add-expense':txnDialog('expense'); break;
       case 'add-card':   cardDialog(null); break;
+      case 'add-fixed-income':  fixedDialog('income'); break;
+      case 'add-fixed-expense': fixedDialog('expense'); break;
+      case 'edit-fixed':        fixedDialog(null, id); break;
       case 'edit-card':  cardDialog(id); break;
       case 'card-bill':  cardBillDialog(id); break;
       case 'borrow':     borrowDialog(id); break;

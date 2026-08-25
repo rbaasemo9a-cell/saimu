@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS card_bills (
   UNIQUE(card_id, pay_month)
 );
 
+-- 毎月決まって出入りするお金。目標から逆算して「あといくら必要か」を出すのに使う。
+-- ここに入れても収支の記録にはならない。あくまで計画のための数字。
+CREATE TABLE IF NOT EXISTS fixed_items (
+  id         TEXT PRIMARY KEY,
+  type       TEXT NOT NULL CHECK(type IN ('income','expense')),
+  category   TEXT NOT NULL DEFAULT 'その他',
+  amount     REAL NOT NULL CHECK(amount >= 0),
+  memo       TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS goals (
   id                INTEGER PRIMARY KEY CHECK(id = 1),
   target_date       TEXT NOT NULL DEFAULT '',
@@ -257,6 +268,8 @@ const Q = {
                      FROM goals WHERE id = 1`),
   borrows: db.prepare(`SELECT id, debt_id AS debtId, date, amount, memo
                        FROM borrows ORDER BY date DESC, rowid DESC`),
+  fixed: db.prepare(`SELECT id, type, category, amount, memo, created_at AS createdAt
+                     FROM fixed_items ORDER BY type DESC, created_at, rowid`),
   debt: db.prepare('SELECT * FROM debts WHERE id = ?'),
   rep:  db.prepare('SELECT * FROM repayments WHERE id = ?'),
   borrow: db.prepare('SELECT * FROM borrows WHERE id = ?')
@@ -286,6 +299,7 @@ function getState() {
     cards: Q.cards.all(),
     cardBills: Q.cardBills.all(),
     borrows: Q.borrows.all(),
+    fixed: Q.fixed.all(),
     txns: Q.txns.all(),
     repayments: Q.reps.all(),
     goals: Q.goals.get() || { targetDate: '', monthlyRepay: 0, emergency: 0, emergencyCurrent: 0 }
@@ -544,6 +558,33 @@ function deleteCardBill(id) {
   db.prepare('DELETE FROM card_bills WHERE id = ?').run(id);
 }
 
+/* ---------- 毎月の固定収支 ---------- */
+
+function addFixed(b) {
+  const type = b.type === 'income' ? 'income' : 'expense';
+  const amount = Math.max(0, num(b.amount));
+  if (!(amount > 0)) throw new BadRequest('金額は1円以上で入力してください');
+  const id = uid();
+  db.prepare(`INSERT INTO fixed_items (id, type, category, amount, memo, created_at)
+              VALUES (?,?,?,?,?,?)`)
+    .run(id, type, str(b.category, 30) || 'その他', amount, str(b.memo, 60), localToday());
+  return id;
+}
+
+function updateFixed(id, b) {
+  if (!db.prepare('SELECT id FROM fixed_items WHERE id = ?').get(id)) {
+    throw new BadRequest('その項目は見つかりません');
+  }
+  const amount = Math.max(0, num(b.amount));
+  if (!(amount > 0)) throw new BadRequest('金額は1円以上で入力してください');
+  db.prepare('UPDATE fixed_items SET category=?, amount=?, memo=? WHERE id=?')
+    .run(str(b.category, 30) || 'その他', amount, str(b.memo, 60), id);
+}
+
+function deleteFixed(id) {
+  db.prepare('DELETE FROM fixed_items WHERE id = ?').run(id);
+}
+
 /* ---------- 目標 ---------- */
 
 function setGoals(b) {
@@ -558,7 +599,7 @@ function setGoals(b) {
 function wipe() {
   tx(() => {
     db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
-             DELETE FROM debts; DELETE FROM cards;`);
+             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;`);
     db.prepare(`UPDATE goals SET target_date='', monthly_repay=0, emergency=0, emergency_current=0
                 WHERE id=1`).run();
   });
@@ -569,7 +610,7 @@ function importState(p) {
   if (!p || !Array.isArray(p.debts)) throw new BadRequest('バックアップの形式が違います');
   tx(() => {
     db.exec(`DELETE FROM repayments; DELETE FROM borrows; DELETE FROM txns;
-             DELETE FROM debts; DELETE FROM cards;`);
+             DELETE FROM debts; DELETE FROM cards; DELETE FROM fixed_items;`);
 
     const insC = db.prepare('INSERT OR IGNORE INTO cards (id,name,created_at) VALUES (?,?,?)');
     const cardIds = new Set();
@@ -634,6 +675,16 @@ function importState(p) {
       if (!(amt > 0) || !seen.has(str(b.debtId, 40))) continue;   // 宛先の無い記録は捨てる
       insBo.run(str(b.id, 40) || uid(), str(b.debtId, 40), dateOr(b.date, localToday()),
                 amt, str(b.memo, 60));
+    }
+
+    const insF = db.prepare(`INSERT OR IGNORE INTO fixed_items (id,type,category,amount,memo,created_at)
+                             VALUES (?,?,?,?,?,?)`);
+    for (const f of (p.fixed || [])) {
+      const amt = num(f.amount);
+      if (!(amt > 0)) continue;
+      insF.run(str(f.id, 40) || uid(), f.type === 'income' ? 'income' : 'expense',
+               str(f.category, 30) || 'その他', amt, str(f.memo, 60),
+               dateOr(f.createdAt, localToday()));
     }
 
     const g = p.goals || {};
@@ -745,6 +796,7 @@ module.exports = {
   addDebt, updateDebt, deleteDebt,
   addRepayment, deleteRepayment,
   addBorrow, deleteBorrow,
+  addFixed, updateFixed, deleteFixed,
   addTxn, deleteTxn,
   setGoals,
   wipe, importState, loadSample, backup

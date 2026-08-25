@@ -36,6 +36,7 @@ const TABLES = {
   cardBills: ['id', 'cardId', 'payMonth', 'amount', 'memo'],
   repayments: ['id', 'debtId', 'date', 'amount', 'interest', 'principal', 'memo'],
   borrows: ['id', 'debtId', 'date', 'amount', 'memo'],
+  fixed: ['id', 'type', 'category', 'amount', 'memo', 'createdAt'],
   goals: ['targetDate', 'monthlyRepay', 'emergency', 'emergencyCurrent'],
   meta: ['revision', 'updatedAt', 'app']
 };
@@ -388,6 +389,7 @@ async function readAll() {
     cards: byTable.cards,
     cardBills: byTable.cardBills,
     borrows: byTable.borrows,
+    fixed: byTable.fixed,
     txns: byTable.txns,
     repayments: byTable.repayments,
     goals: {
@@ -403,7 +405,7 @@ async function readAll() {
 async function writeAll(st) {
   const payload = {
     debts: st.debts, txns: st.txns, repayments: st.repayments,
-    cards: st.cards, cardBills: st.cardBills, borrows: st.borrows,
+    cards: st.cards, cardBills: st.cardBills, borrows: st.borrows, fixed: st.fixed,
     goals: [st.goals],
     meta: [{ revision: revision + 1, updatedAt: new Date().toISOString(), app: 'saimu-roadmap' }]
   };
