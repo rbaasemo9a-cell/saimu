@@ -74,7 +74,13 @@ ok('401 のときは覚えた鍵を捨てる', /res\.status === 401[\s\S]{0,160}
  */
 {
   ok('読み込んだ内容を端末に控える', /function saveCache/.test(app) && /function loadCache/.test(app));
-  ok('開いたらまず控えを出す', /function showCached/.test(app) && /const cached = showCached\(\)/.test(app));
+  ok('開いたらまず控えを出す',
+    app.includes('function showCached') && app.includes('cached = showCached();'));
+  ok('控えの復元で落ちても起動を止めない',
+    /try \{\s*
+?\s*cached = showCached\(\);/.test(app) || app.includes('cached = null;'));
+  ok('読み込み前の書き込みを拒否する',
+    app.includes('if (!loadedFromSheet)') && app.includes('markLoaded()'));
   ok('控えがあればログイン画面で止めない',
     app.includes('showStaleBanner(cached.at)') && !app.includes('if (cached) showGate'));
   ok('いつ時点かを帯で知らせる', /function showStaleBanner/.test(app));
