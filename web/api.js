@@ -488,6 +488,10 @@ async function api(path, method, body) {
   if (resource === 'stats' && m === 'GET') {
     return {
       path: `https://docs.google.com/spreadsheets/d/${fileId}/edit`,
+      // Google のクライアントID。この端末の localStorage にしか無いので、
+      // 画面から読めないと確かめようがない。秘密ではない（クライアント
+      // シークレットとは別物で、この作りでは使っていない）。
+      clientId,
       size: JSON.stringify(mem).length,
       debts: mem.debts.length,
       txns: mem.txns.length,

@@ -2755,6 +2755,13 @@ details.tableview > div { margin-top: 8px; }
                <label>保存先</label>
                <div class="num" style="font-size:11.5px;word-break:break-all;color:var(--ink-2)">${esc(dbStats.path)}</div>
              </div>` : ''}
+             ${dbStats && dbStats.clientId ? `<div class="field" style="margin-top:13px">
+               <label>クライアントID</label>
+               <div class="num" id="clientIdText"
+                    style="font-size:11.5px;word-break:break-all;color:var(--ink-2)">${esc(dbStats.clientId)}</div>
+               <button class="btn sm" data-act="copy-clientid" style="margin-top:8px">コピー</button>
+               <span class="note">この端末にだけ保存されています。Google の画面で作った ID の控えです</span>
+             </div>` : ''}
              <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:16px">
                <button class="btn" data-act="sample">サンプルデータを読み込む</button>
                <button class="btn danger" data-act="wipe" ${n ? '' : 'disabled'}>すべて削除</button>
@@ -3381,6 +3388,22 @@ details.tableview > div { margin-top: 8px; }
     }
   }
 
+  /** 短い文字列をクリップボードへ。失敗したら選択できる形で見せる。 */
+  async function copyText(text, label) {
+    if (!text) { toast(label + 'がありません'); return; }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(label + 'をコピーしました');
+    } catch (e) {
+      openDialog({
+        title: label, lede: '下の文字をすべて選択してコピーしてください。', ok: '閉じる',
+        body: `<textarea readonly style="min-height:90px" id="cpText">${esc(text)}</textarea>`,
+        onOpen: () => { const t = document.getElementById('cpText'); t.focus(); t.select(); },
+        onOk: () => {}
+      });
+    }
+  }
+
   async function copyData() {
     const json = JSON.stringify(state, null, 2);
     try {
@@ -3434,6 +3457,7 @@ details.tableview > div { margin-top: 8px; }
       case 'edit-tax':   taxDialog(taxYear); break;
       case 'export':     exportData(); break;
       case 'copy':       copyData(); break;
+      case 'copy-clientid': copyText(dbStats && dbStats.clientId, 'クライアントID'); break;
       case 'backup':     makeBackup(); break;
       case 'sample':
         simExtra = null; cashMonth = thisMonth();
